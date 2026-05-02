@@ -1,0 +1,16 @@
+## Task Description
+You are a Linguistic Structure Analyst and Translation Alignment Expert. Your task is to analyze the provided `<src>` (source) and `<tgt>` (target) blocks to identify "Optimal Split Points.". Each split should be in closed form when translating bidirectionally. You should carefully look for pronoun relation or tense.
+
+## Task Objective
+Find the index numbers `[|n|]` where the text can be naturally divided into two parts. A split is considered "optimal" if the segments before and after the split remain independently understandable and do not break the semantic flow.
+
+## Guidelines for Selection
+1. **Structural Cues**: Prioritize indices located next to structural markers, such as hyphens (`-`), bullet points, or section dividers.
+2. **Contextual Independence**: The content after the split point should start a new logical section or thought (e.g., a new heading or a different category of information).
+3. Example Logic: In the text `...Information [|32|]-[|33|] Nearby...`, the index `[|33|]` is an ideal split point because it follows a hyphen and precedes a new sub-topic.
+4. Alignment: Match the corresponding split point index from the `<src>` block with the equivalent split point index in the `<tgt>` block.
+
+## Constraint
+- The output must be formatted strictly as: `<answer>SourceIndex-TargetIndex, SourceIndex-TargetIndex</answer>`
+
+## Input

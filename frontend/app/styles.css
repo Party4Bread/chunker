@@ -1,0 +1,73 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /* Brand and accent colors as CSS variables so non-Tailwind sites
+     (.gutter-*, brand SVG strokes) reference the same source of truth. */
+  :root {
+    --color-src: oklch(68% 0.15 60);
+    --color-tgt: oklch(62% 0.15 240);
+    --color-aligned: oklch(52% 0.13 155);
+    --color-brand: oklch(45% 0.10 230);
+    --color-ink: oklch(22% 0.022 230);
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-neutral-50 text-ink antialiased font-sans;
+    font-feature-settings: "ss01", "cv11";
+  }
+  /* Tabular figures wherever we render numbers — chunk indices, boundary counts. */
+  .font-mono {
+    font-variant-numeric: tabular-nums;
+  }
+  /* Disable iOS form-zoom; use proper text size. */
+  input,
+  textarea,
+  select {
+    font-size: inherit;
+  }
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center min-h-touch min-w-touch px-3 rounded-md border border-neutral-300 bg-white text-ink shadow-sm text-sm font-medium hover:bg-neutral-100 active:bg-neutral-200 transition disabled:opacity-50;
+  }
+  .btn-primary {
+    @apply btn bg-ink text-brand-fg border-ink hover:bg-neutral-800 active:bg-neutral-700;
+  }
+  .btn-danger {
+    @apply btn text-red-700 hover:bg-red-50 border-red-200;
+  }
+  .chunk-card {
+    @apply rounded-md border border-neutral-200 bg-white p-3 shadow-sm hover:border-neutral-300;
+  }
+  .chip {
+    @apply inline-flex items-center gap-1 rounded-full bg-neutral-200 px-3 py-1 text-xs font-medium;
+  }
+  /* Section eyebrow — replaces SCREAMING UPPERCASE everywhere. Quiet, weight-led. */
+  .eyebrow {
+    @apply text-2xs font-semibold text-neutral-500;
+    letter-spacing: 0.01em;
+  }
+  /* Side-accent gutter on a chunk card. Structural, not decorative. */
+  .gutter-src {
+    box-shadow: inset 3px 0 0 0 var(--color-src);
+  }
+  .gutter-tgt {
+    box-shadow: inset 3px 0 0 0 var(--color-tgt);
+  }
+  /* Editor page padding: leaves room for the mobile bottom action bar plus iOS safe-area. */
+  .editor-page {
+    padding-bottom: calc(8.5rem + env(safe-area-inset-bottom, 0px));
+  }
+  @media (min-width: 1024px) {
+    .editor-page {
+      padding-bottom: 2rem;
+    }
+  }
+}

@@ -1,0 +1,40 @@
+# Python
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.egg-info/
+**/.venv/
+**/venv/
+.python-version
+
+# Node / frontend builds
+**/node_modules/
+frontend/build/
+frontend/.cache/
+frontend/.react-router/
+*.tsbuildinfo
+
+# Local data — contains copyrighted source material from test projects
+data/
+backend/data/
+*.sqlite
+*.sqlite3
+*.db
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Editor / OS
+.idea/
+.vscode/
+.DS_Store
+*.log
+
+# Claude Code local-only state (machine-specific permission allowlist)
+.claude/settings.local.json
+
+# Vendored third-party skills (pulled via skills-lock.json — re-fetch instead of vendor)
+skills/
+.agents/

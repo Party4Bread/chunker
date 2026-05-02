@@ -1,0 +1,82 @@
+# Throwaway serving stack: chunker (FastAPI + SPA) + vLLM + cloudflared quick tunnel.
+#
+# - Project DBs live in a named volume (chunker_data) so they survive restarts.
+#   Wipe explicitly with `docker compose down -v` if you really want a clean slate.
+# - HF cache is bind-mounted from the host so model weights aren't re-downloaded.
+# - vLLM is internal-only (no host port). The chunker hits it at http://vllm:8000.
+# - Cloudflared opens a quick tunnel to the chunker; URL is printed in its logs.
+#
+# Recommended bring-up: `scripts/serve.sh` — it builds, prints the tunnel URL,
+# and runs `docker compose down -v` on exit (matches `--rm` semantics).
+
+services:
+  vllm:
+    image: vllm/vllm-openai:nightly
+    command:
+      - --model
+      - ${CHUNKER_VLLM_MODEL:-p4b/qwen3-4b-chunky-nvfp4}
+      - --port
+      - "8000"
+      - --gpu-memory-utilization
+      - "0.4"
+      - --max-model-len
+      - "16384"
+      - --enable-prefix-caching
+      - --enforce-eager
+    environment:
+      HUGGING_FACE_HUB_TOKEN: ${HF_TOKEN:-}
+    volumes:
+      - ${HOME}/.cache/huggingface:/root/.cache/huggingface
+    ipc: host
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'python3 -c "import urllib.request as u; u.urlopen(''http://localhost:8000/health'').read()" || exit 1',
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+      start_period: 300s
+    restart: "no"
+
+  chunker:
+    build:
+      context: .
+    image: chunker:local
+    container_name: chunker
+    ports:
+      - "8000:8000"
+    volumes:
+      - chunker_data:/data
+    environment:
+      CHUNKER_DATA_DIR: /data
+      CHUNKER_ENABLE_SPLITTER: "false"
+      CHUNKER_VLLM_BASE_URL: http://vllm:8000
+      CHUNKER_VLLM_MODEL: ${CHUNKER_VLLM_MODEL:-p4b/qwen3-4b-chunky-nvfp4}
+    depends_on:
+      vllm:
+        condition: service_started
+    restart: "no"
+
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    command:
+      - tunnel
+      - --no-autoupdate
+      - --url
+      - http://chunker:8000
+    depends_on:
+      chunker:
+        condition: service_started
+    restart: "no"
+
+volumes:
+  chunker_data:
