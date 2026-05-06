@@ -131,3 +131,34 @@ def test_resolve_max_tokens_raises_when_no_room(monkeypatch):
         assert exc.max_model_len == 1024
     else:
         raise AssertionError("expected PromptOverflowError")
+
+
+def test_get_max_model_len_falls_back_to_tokenize(monkeypatch):
+    """When /v1/models doesn't expose max_model_len (e.g. --served-model-name remapped
+    the id), the client must still recover it via /tokenize. Otherwise oversized prompts
+    skip the overflow check and reach vLLM as a raw HTTP 400, defeating the windowed
+    fallback in predict_pairs."""
+    cfg = VllmClientConfig(model="p4b/qwen3-4b-chunky-nvfp4")
+    client = VllmClient(cfg)
+
+    def fake_count_chat_tokens(prompt: str) -> int:
+        # Mimic the real method's side effect of caching max_model_len from /tokenize.
+        client._cached_max_model_len = 4096
+        return 1
+    monkeypatch.setattr(client, "count_chat_tokens", fake_count_chat_tokens)
+
+    class _FakeModelsResponse:
+        def raise_for_status(self): ...
+        def json(self):
+            # Model served under a different name — id mismatch is the common case.
+            return {"data": [{"id": "served-alias", "max_model_len": 4096}]}
+
+    class _FakeHttpxClient:
+        def __init__(self, *a, **kw): ...
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def get(self, url): return _FakeModelsResponse()
+
+    monkeypatch.setattr("chunker_core.llm.httpx.Client", _FakeHttpxClient)
+
+    assert client.get_max_model_len() == 4096
