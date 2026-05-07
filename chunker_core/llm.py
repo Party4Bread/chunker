@@ -74,7 +74,15 @@ class VllmClient:
         }
 
     def get_max_model_len(self) -> int | None:
-        """Return the model's max context length (auto-detected once, then cached)."""
+        """Return the model's max context length (auto-detected once, then cached).
+
+        Tries ``/v1/models`` first; falls back to ``/tokenize`` (which also reports
+        ``max_model_len``) when the model id has been remapped by ``--served-model-name``
+        or the entry is otherwise missing. Without this fallback an oversized prompt
+        skips the overflow check in ``_resolve_max_tokens`` and reaches vLLM as a raw
+        HTTP 400, so ``predict_pairs`` never sees ``PromptOverflowError`` and the
+        windowed fallback fails to engage.
+        """
         if self._cached_max_model_len is not None:
             return self._cached_max_model_len
         try:
@@ -83,14 +91,19 @@ class VllmClient:
                 response.raise_for_status()
                 data = response.json()
         except Exception:
+            data = None
+        if data is not None:
+            for entry in data.get("data", []) or []:
+                if entry.get("id") == self.config.model:
+                    m = entry.get("max_model_len")
+                    if isinstance(m, int) and m > 0:
+                        self._cached_max_model_len = m
+                        return m
+        try:
+            self.count_chat_tokens("ping")
+        except Exception:
             return None
-        for entry in data.get("data", []) or []:
-            if entry.get("id") == self.config.model:
-                m = entry.get("max_model_len")
-                if isinstance(m, int) and m > 0:
-                    self._cached_max_model_len = m
-                    return m
-        return None
+        return self._cached_max_model_len
 
     def count_chat_tokens(self, user_prompt: str) -> int:
         """Count tokens for a single-user chat message after the chat template is applied."""
