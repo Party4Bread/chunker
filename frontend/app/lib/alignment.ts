@@ -128,9 +128,13 @@ export function mergeWithNext(state: AlignmentState, side: Side, i: number): Ali
   next.splice(i, 2, `${arr[i]} ${arr[i + 1]}`.replace(/\s+/g, " ").trim());
   const idx = side === "src" ? 0 : 1;
   return chunksAndPairsFor(state, side, next, (p) => {
+    // The boundary that sat between chunks i and i+1 is dissolved by the merge.
+    // Setting p[idx]=0 makes clampPairs drop it, instead of repositioning it to
+    // p[idx]=i (which would silently introduce a brand-new boundary in front of
+    // the merged chunk and spawn a ghost empty segment).
     if (p[idx] === i + 1) {
       const out: Pair = [p[0], p[1]];
-      out[idx] = i;
+      out[idx] = 0;
       return out;
     }
     if (p[idx] > i + 1) {
