@@ -12,7 +12,7 @@ from typing import Sequence
 
 import httpx
 
-from .parsing import build_chunked_sets, normalize_raw_pairs, parse_pairs
+from .parsing import build_chunked_sets, monotonic_sort_pairs, parse_pairs
 from .prompts import build_text, build_user_prompt
 
 DEFAULT_STOP = ["<|im_end|>", "<|end|>", "<|return|>", "<|call|>"]
@@ -161,7 +161,8 @@ def _result_from_response(
         cleaned: list[tuple[int, int]] = []
         parse_error = True
     else:
-        cleaned = normalize_raw_pairs(raw_pairs, len(src_chunks), len(tgt_chunks))
+        # Sort+dedupe+monotonic-filter so persisted pairs match what build_chunked_sets shows.
+        cleaned = monotonic_sort_pairs(raw_pairs, len(src_chunks), len(tgt_chunks))
         parse_error = False
     chunked_sets = build_chunked_sets(src_chunks, tgt_chunks, cleaned)
     return {
@@ -283,7 +284,10 @@ def predict_pairs_windowed(
             parse_error_any = True
             local_pairs: list[tuple[int, int]] = []
         else:
-            local_pairs = normalize_raw_pairs(raw_pairs, s_end - s_cur, t_end - t_cur)
+            # Sort so the "drop last" advance below targets the rightmost boundary
+            # (i.e. the one closest to the window edge, most likely truncated) rather
+            # than whichever one the model happened to emit last.
+            local_pairs = monotonic_sort_pairs(raw_pairs, s_end - s_cur, t_end - t_cur)
 
         if not local_pairs:
             # Model produced nothing usable in this window — advance past it
@@ -307,7 +311,9 @@ def predict_pairs_windowed(
             break
         s_cur, t_cur = new_s, new_t
 
-    cleaned = normalize_raw_pairs(global_pairs, n_src, n_tgt)
+    # Final cleanup: stitched windows can interleave across boundaries, so re-sort
+    # globally before storage / display.
+    cleaned = monotonic_sort_pairs(global_pairs, n_src, n_tgt)
     chunked_sets = build_chunked_sets(src_chunks, tgt_chunks, cleaned)
     return {
         "response": "\n---\n".join(response_chunks),

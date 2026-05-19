@@ -73,14 +73,55 @@ def test_predict_pairs_windowed_advances_when_model_returns_nothing():
     assert result["parse_error"] is False  # empty <answer> is parseable, not an error
 
 
-def test_predict_pairs_windowed_breaks_on_no_progress():
+def test_predict_pairs_windowed_skips_invalid_zero_boundary():
     src = [f"s{i}" for i in range(6)]
     tgt = [f"t{i}" for i in range(6)]
-    # Single pair (0,0) — accepted as the only one, but advance is to (0,0) which is no progress.
-    client = _FakeClient(answers=[format_answer([(0, 0)])])
+    # (0,0) is not a valid cumulative boundary — boundaries live in [1, n). The
+    # window must drop it and advance past the span (rather than treating it as
+    # an "advance to (0,0)" no-progress signal that strands the rest of the doc).
+    client = _FakeClient(
+        answers=[
+            format_answer([(0, 0)]),
+            format_answer([(1, 1)]),
+        ]
+    )
     result = predict_pairs_windowed(client, "PFX:", src, tgt, window_chunks=3)
-    assert result["raw_pairs"] == [(0, 0)]
-    assert len(client.calls) == 1  # bailed out; didn't loop forever
+    # First window emitted nothing usable -> advance to (3,3). Final window covers
+    # (3..6, 3..6) and emits one local pair at (1,1) -> global (4,4).
+    assert result["raw_pairs"] == [(4, 4)]
+    assert len(client.calls) == 2
+
+
+def test_predict_pairs_windowed_sorts_local_pairs_for_advance():
+    """Models occasionally emit cumulative pairs out of order. The 'drop last
+    likely truncated' heuristic must target the rightmost pair (after sort), or
+    the window advances to the wrong position and loses real boundaries."""
+    src = [f"s{i}" for i in range(8)]
+    tgt = [f"t{i}" for i in range(8)]
+    client = _FakeClient(
+        answers=[
+            # Out-of-order emission. Sorted: [(1,1), (2,2), (3,3)]; drop last,
+            # accept (1,1),(2,2); advance -> (2,2).
+            "<answer>3-3, 1-1, 2-2</answer>",
+            # Sorted: [(1,1), (2,2), (3,3)]; drop last; accept; advance -> (4,4).
+            "<answer>2-2, 3-3, 1-1</answer>",
+            # Final window [4:8). Sorted: [(1,1), (3,3)].
+            format_answer([(3, 3), (1, 1)]),
+        ]
+    )
+    result = predict_pairs_windowed(client, "PFX:", src, tgt, window_chunks=4)
+    assert result["pairs"] == [(1, 1), (2, 2), (3, 3), (4, 4), (5, 5), (7, 7)]
+
+
+def test_result_from_response_sorts_pairs_for_storage():
+    """Direct (non-windowed) parse must canonicalise pair order so persisted
+    model_pairs match what build_chunked_sets renders."""
+    from chunker_core.llm import _result_from_response
+    src = [f"s{i}" for i in range(5)]
+    tgt = [f"t{i}" for i in range(5)]
+    out = _result_from_response("<answer>3-3, 1-1, 2-2</answer>", src, tgt, "")
+    assert out["pairs"] == [(1, 1), (2, 2), (3, 3)]
+    assert out["parse_error"] is False
 
 
 def test_predict_pairs_overflows_into_window_path():

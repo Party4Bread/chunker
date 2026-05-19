@@ -70,6 +70,38 @@ def normalize_raw_pairs(
     return cleaned
 
 
+def monotonic_sort_pairs(
+    pairs: Iterable[Sequence[int]],
+    n_src: int,
+    n_tgt: int,
+) -> list[tuple[int, int]]:
+    """Return cumulative boundaries sorted, deduped, and made monotonic in tgt.
+
+    Boundaries are 1-based indices in ``[1, n)``, so ``0`` and ``n`` are dropped.
+    The model occasionally emits pairs out of cumulative order (or the windowed
+    stitcher concatenates two windows whose locally-sorted outputs interleave);
+    storing them as-is leaves persisted pairs disagreeing with what
+    ``build_chunked_sets`` shows, and breaks the windowed loop's "drop last"
+    advance heuristic which assumes the rightmost local pair sits at the window
+    edge. This helper enforces the same canonical shape used for display.
+    """
+    sorted_pairs = sorted(
+        {
+            (int(p[0]), int(p[1]))
+            for p in pairs
+            if len(p) == 2 and 1 <= int(p[0]) < n_src and 1 <= int(p[1]) < n_tgt
+        }
+    )
+    out: list[tuple[int, int]] = []
+    prev_t = 0
+    for s, t in sorted_pairs:
+        if t < prev_t:
+            continue
+        out.append((s, t))
+        prev_t = t
+    return out
+
+
 def format_answer(gt_pairs: Sequence[tuple[int, int]]) -> str:
     inner = ", ".join(f"{src}-{tgt}" for src, tgt in gt_pairs)
     return f"<answer>{inner}</answer>"
@@ -172,22 +204,7 @@ def build_chunked_sets(
     if pairs is None:
         return None
 
-    sorted_pairs = sorted(
-        {
-            (int(src_idx), int(tgt_idx))
-            for pair in pairs
-            if len(pair) == 2
-            for src_idx, tgt_idx in [(pair[0], pair[1])]
-            if 1 <= int(src_idx) < len(src_chunks) and 1 <= int(tgt_idx) < len(tgt_chunks)
-        }
-    )
-    valid_pairs: list[tuple[int, int]] = []
-    prev_t = 0
-    for s, t in sorted_pairs:
-        if t < prev_t:
-            continue
-        valid_pairs.append((s, t))
-        prev_t = t
+    valid_pairs = monotonic_sort_pairs(pairs, len(src_chunks), len(tgt_chunks))
 
     chunked_sets: list[dict[str, object]] = []
     prev_src = 0
