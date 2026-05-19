@@ -132,7 +132,8 @@ def run_http(args: argparse.Namespace, sample_text: str, prompt_prefix: str) -> 
         )
     )
     user_prompt = build_user_prompt(prompt_prefix, sample_text)
-    return client.complete(user_prompt)
+    text, _ = client.complete(user_prompt)
+    return text
 
 
 def main() -> None:
@@ -180,7 +181,7 @@ def main() -> None:
         if not src_chunks or not tgt_chunks:
             # Pure --input-json text mode (no chunks). Fall through to a raw request.
             user_prompt = build_user_prompt(prompt_prefix, sample_text)
-            response = VllmClient(
+            response, _ = VllmClient(
                 VllmClientConfig(
                     base_url=args.vllm_base_url,
                     model=args.model,

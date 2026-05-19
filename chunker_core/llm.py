@@ -130,16 +130,24 @@ class VllmClient:
             raise PromptOverflowError(prompt_tokens, max_len, self.config.min_output_tokens)
         return max(self.config.min_output_tokens, min(self.config.max_tokens, available))
 
-    def complete(self, user_prompt: str) -> str:
+    def complete(self, user_prompt: str) -> tuple[str, str | None]:
+        """Send a chat completion. Returns ``(content, finish_reason)``.
+
+        ``finish_reason`` is vLLM/OpenAI's reason for stopping: ``"stop"`` means the model
+        emitted a stop token (clean end), ``"length"`` means the response was truncated at
+        ``max_tokens``. ``predict_pairs_windowed`` reads this to tell apart "the model is
+        done" from "the model was cut off mid-answer" — those need different recovery.
+        """
         max_tokens = self._resolve_max_tokens(user_prompt)
         payload = self._payload(user_prompt, max_tokens=max_tokens)
         with httpx.Client(timeout=self.config.timeout_seconds) as client:
             response = client.post(self._chat_url(), json=payload)
             response.raise_for_status()
             data = response.json()
-        return data["choices"][0]["message"]["content"].strip()
+        choice = data["choices"][0]
+        return choice["message"]["content"].strip(), choice.get("finish_reason")
 
-    async def acomplete(self, user_prompt: str) -> str:
+    async def acomplete(self, user_prompt: str) -> tuple[str, str | None]:
         # Token counting still uses the sync path — it's a single tiny POST.
         max_tokens = self._resolve_max_tokens(user_prompt)
         payload = self._payload(user_prompt, max_tokens=max_tokens)
@@ -147,7 +155,8 @@ class VllmClient:
             response = await client.post(self._chat_url(), json=payload)
             response.raise_for_status()
             data = response.json()
-        return data["choices"][0]["message"]["content"].strip()
+        choice = data["choices"][0]
+        return choice["message"]["content"].strip(), choice.get("finish_reason")
 
 
 def _result_from_response(
@@ -194,7 +203,7 @@ def predict_pairs(
     sample_text = build_text(src_chunks, tgt_chunks)
     user_prompt = build_user_prompt(prompt_prefix, sample_text)
     try:
-        response_text = client.complete(user_prompt)
+        response_text, _ = client.complete(user_prompt)
     except PromptOverflowError:
         if not fallback_to_window:
             raise
@@ -217,7 +226,7 @@ async def apredict_pairs(
 ) -> dict:
     sample_text = build_text(src_chunks, tgt_chunks)
     user_prompt = build_user_prompt(prompt_prefix, sample_text)
-    response_text = await client.acomplete(user_prompt)
+    response_text, _ = await client.acomplete(user_prompt)
     return _result_from_response(response_text, src_chunks, tgt_chunks, sample_text)
 
 
@@ -232,10 +241,15 @@ def predict_pairs_windowed(
 ) -> dict:
     """Sliding-window alignment for prompts that exceed the model context.
 
-    Each window emits a list of cumulative ``(src_idx, tgt_idx)`` boundaries in local
-    coordinates. We drop the trailing pair (likely truncated near the window edge),
-    translate the rest to global coordinates, and start the next window at the last accepted boundary so we don't
-    double-emit it. Stops when no progress is made.
+    Each window emits cumulative ``(src_idx, tgt_idx)`` boundaries in local coordinates.
+    Translate them to global, append, and start the next window at the last accepted
+    boundary so we don't double-emit it.
+
+    When the model's response was truncated at ``max_tokens`` (``finish_reason="length"``)
+    the trailing pair may be cut off mid-emission, so we drop it and let the next window
+    re-discover the real boundary with a fresh prompt. When the model finished cleanly
+    (``finish_reason="stop"``) we keep all pairs — relying on re-discovery in that case
+    just leaves a constant-offset shift if the next window's emission lands a chunk off.
     """
     src_chunks = list(src_chunks)
     tgt_chunks = list(tgt_chunks)
@@ -272,7 +286,7 @@ def predict_pairs_windowed(
         local_text = build_text(src_chunks[s_cur:s_end], tgt_chunks[t_cur:t_end])
         local_prompt = build_user_prompt(prompt_prefix, local_text)
         try:
-            response_text = client.complete(local_prompt)
+            response_text, finish_reason = client.complete(local_prompt)
         except PromptOverflowError:
             # Even the smallest window overflows — give up cleanly.
             parse_error_any = True
@@ -284,10 +298,14 @@ def predict_pairs_windowed(
             parse_error_any = True
             local_pairs: list[tuple[int, int]] = []
         else:
-            # Sort so the "drop last" advance below targets the rightmost boundary
-            # (i.e. the one closest to the window edge, most likely truncated) rather
-            # than whichever one the model happened to emit last.
+            # Sort so the truncation-only drop below targets the rightmost boundary
+            # (the one closest to the cutoff) rather than whichever one the model
+            # happened to emit last in its arbitrary order.
             local_pairs = monotonic_sort_pairs(raw_pairs, s_end - s_cur, t_end - t_cur)
+
+        # vLLM/OpenAI returns finish_reason="length" iff max_tokens was hit. Anything
+        # else (including unknown / None from test clients) is treated as a clean stop.
+        truncated = finish_reason == "length"
 
         if not local_pairs:
             # Model produced nothing usable in this window — advance past it
@@ -298,9 +316,14 @@ def predict_pairs_windowed(
                 global_pairs.append((s_cur + ls, t_cur + lt))
             break
         else:
-            # Drop the last pair (likely truncated near window edge); fall back to
-            # accepting it if it's the only one we've got.
-            accepted = local_pairs[:-1] if len(local_pairs) > 1 else local_pairs
+            # Only drop the trailing pair when the model was actually cut off — its
+            # last emission could be partial / hallucinated. On clean stop, keep all
+            # pairs; the re-discovery path otherwise causes a constant-offset shift
+            # when the next window's emission lands a chunk off the dropped boundary.
+            if truncated and len(local_pairs) > 1:
+                accepted = local_pairs[:-1]
+            else:
+                accepted = local_pairs
             for ls, lt in accepted:
                 global_pairs.append((s_cur + ls, t_cur + lt))
             last_s, last_t = accepted[-1]

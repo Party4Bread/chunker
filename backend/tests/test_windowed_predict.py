@@ -14,7 +14,12 @@ from chunker_core.prompts import build_text, build_user_prompt
 
 
 class _FakeClient:
-    """Minimal stand-in for VllmClient that hands canned answers back per call."""
+    """Minimal stand-in for VllmClient that hands canned answers back per call.
+
+    Each answer in ``answers`` can be either a raw response string (defaults to
+    ``finish_reason="stop"`` — clean stop) or a ``(response, finish_reason)`` tuple.
+    Tests that want to exercise the truncation path pass ``"length"`` explicitly.
+    """
 
     def __init__(self, answers, max_model_len=None, max_tokens=64, safety=16, min_out=32):
         self._answers = list(answers)
@@ -33,28 +38,52 @@ class _FakeClient:
         # Treat 1 char ~= 1 token. Good enough to drive window-shrinking logic.
         return len(prompt)
 
-    def complete(self, prompt: str) -> str:
+    def complete(self, prompt: str) -> tuple[str, str | None]:
         self.calls.append(prompt)
-        return self._answers.pop(0)
+        item = self._answers.pop(0)
+        if isinstance(item, tuple):
+            return item
+        return item, "stop"
 
 
 def test_predict_pairs_windowed_stitches_local_to_global():
     src = [f"s{i}" for i in range(8)]
     tgt = [f"t{i}" for i in range(8)]
     # Boundaries must be strictly inside the window (idx < window_size), so for window=4
-    # only 1..3 are valid local indices.
+    # only 1..3 are valid local indices. With finish_reason="stop" (the default for
+    # _FakeClient), the windowed loop trusts the model's last pair and keeps it.
     client = _FakeClient(
         answers=[
-            format_answer([(1, 1), (2, 2), (3, 3)]),  # win [0:4): accept (1,1),(2,2); advance->(2,2)
-            format_answer([(1, 1), (2, 2), (3, 3)]),  # win [2:6): accept (1,1),(2,2); advance->(4,4)
-            format_answer([(1, 1), (3, 3)]),          # final win [4:8): emit both
+            format_answer([(1, 1), (2, 2), (3, 3)]),  # win [0:4): keep all; advance->(3,3)
+            format_answer([(1, 1), (2, 2), (3, 3)]),  # win [3:7): keep all; advance->(6,6)
+            format_answer([(1, 1), (3, 3)]),          # final win [6:8): only (1,1) is in-range
         ]
     )
     result = predict_pairs_windowed(client, "PFX:", src, tgt, window_chunks=4)
     assert result["windowed"] is True
-    expected = [(1, 1), (2, 2), (3, 3), (4, 4), (5, 5), (7, 7)]
+    expected = [(1, 1), (2, 2), (3, 3), (4, 4), (5, 5), (6, 6), (7, 7)]
     assert list(result["raw_pairs"]) == expected
     assert result["pairs"] == expected
+
+
+def test_predict_pairs_windowed_drops_last_when_truncated():
+    """When the model's output is truncated (finish_reason="length"), the trailing pair
+    might be cut off mid-emission. Drop it and let the next window re-discover the real
+    boundary."""
+    src = [f"s{i}" for i in range(8)]
+    tgt = [f"t{i}" for i in range(8)]
+    client = _FakeClient(
+        answers=[
+            # Truncated: keep all but last -> accept (1,1),(2,2); advance->(2,2).
+            (format_answer([(1, 1), (2, 2), (3, 3)]), "length"),
+            # Truncated again -> accept (1,1),(2,2); global (3,3),(4,4); advance->(4,4).
+            (format_answer([(1, 1), (2, 2), (3, 3)]), "length"),
+            # Final window [4:8): emit all (truncation flag is moot in the final-window branch).
+            (format_answer([(1, 1), (3, 3)]), "length"),
+        ]
+    )
+    result = predict_pairs_windowed(client, "PFX:", src, tgt, window_chunks=4)
+    assert result["pairs"] == [(1, 1), (2, 2), (3, 3), (4, 4), (5, 5), (7, 7)]
 
 
 def test_predict_pairs_windowed_advances_when_model_returns_nothing():
@@ -93,18 +122,20 @@ def test_predict_pairs_windowed_skips_invalid_zero_boundary():
 
 
 def test_predict_pairs_windowed_sorts_local_pairs_for_advance():
-    """Models occasionally emit cumulative pairs out of order. The 'drop last
-    likely truncated' heuristic must target the rightmost pair (after sort), or
-    the window advances to the wrong position and loses real boundaries."""
+    """Models occasionally emit cumulative pairs out of order. monotonic_sort_pairs
+    canonicalises them before the windowed loop reads off the last pair; without that
+    sort the advance heuristic targets whichever boundary the model emitted last in
+    its arbitrary order and the window moves to the wrong position."""
     src = [f"s{i}" for i in range(8)]
     tgt = [f"t{i}" for i in range(8)]
+    # Mark each as truncated so the drop-last advance heuristic is the one being tested.
     client = _FakeClient(
         answers=[
-            # Out-of-order emission. Sorted: [(1,1), (2,2), (3,3)]; drop last,
+            # Out-of-order emission. Sorted: [(1,1), (2,2), (3,3)]; drop last (truncated),
             # accept (1,1),(2,2); advance -> (2,2).
-            "<answer>3-3, 1-1, 2-2</answer>",
+            ("<answer>3-3, 1-1, 2-2</answer>", "length"),
             # Sorted: [(1,1), (2,2), (3,3)]; drop last; accept; advance -> (4,4).
-            "<answer>2-2, 3-3, 1-1</answer>",
+            ("<answer>2-2, 3-3, 1-1</answer>", "length"),
             # Final window [4:8). Sorted: [(1,1), (3,3)].
             format_answer([(3, 3), (1, 1)]),
         ]
@@ -136,14 +167,14 @@ def test_predict_pairs_overflows_into_window_path():
     )
 
     class _OverflowingClient(_FakeClient):
-        def complete(self, prompt: str) -> str:
+        def complete(self, prompt: str) -> tuple[str, str | None]:
             # First call (the full-prompt attempt inside predict_pairs) overflows; later
             # calls from predict_pairs_windowed succeed.
             full_prompt = build_user_prompt("PFX:", build_text(src, tgt))
             if prompt == full_prompt:
                 raise PromptOverflowError(99999, 1024, 32)
             self.calls.append(prompt)
-            return next(answers)
+            return next(answers), "stop"
 
     client = _OverflowingClient(answers=[])
     result = predict_pairs(client, "PFX:", src, tgt, window_chunks=4)
