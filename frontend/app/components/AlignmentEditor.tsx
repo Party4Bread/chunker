@@ -19,6 +19,8 @@ export interface AlignmentEditorActions {
   insertBoundaryAfter: (side: Side, absIndex: number) => void;
   bumpBoundary: (pair: Pair, side: Side, delta: number) => void;
   removeBoundary: (pair: Pair) => void;
+  moveChunkToNextSegment: (side: Side, absIndex: number) => void;
+  moveChunkToPrevSegment: (side: Side, absIndex: number) => void;
 }
 
 interface AlignmentEditorProps {
@@ -112,6 +114,8 @@ export function AlignmentEditor({
                 segIdx={segIdx}
                 nSrc={state.srcChunks.length}
                 nTgt={state.tgtChunks.length}
+                hasPrevSegment={segIdx > 0}
+                hasNextSegment={segIdx < segments.length - 1}
                 actions={actions}
                 selectedKey={selectedKey}
                 onSelect={onSelect}
@@ -140,6 +144,8 @@ interface SegmentBlockProps {
   segIdx: number;
   nSrc: number;
   nTgt: number;
+  hasPrevSegment: boolean;
+  hasNextSegment: boolean;
   actions: AlignmentEditorActions;
   selectedKey: string | null;
   onSelect: (sel: Selection) => void;
@@ -154,6 +160,8 @@ function SegmentBlock({
   segIdx,
   nSrc,
   nTgt,
+  hasPrevSegment,
+  hasNextSegment,
   actions,
   selectedKey,
   onSelect,
@@ -185,6 +193,8 @@ function SegmentBlock({
           accent="src"
           chunks={seg.src}
           baseAbsIndex={seg.src_range[0]}
+          hasPrevSegment={hasPrevSegment}
+          hasNextSegment={hasNextSegment}
           actions={actions}
           selectedKey={selectedKey}
           onSelect={onSelect}
@@ -197,6 +207,8 @@ function SegmentBlock({
           accent="tgt"
           chunks={seg.tgt}
           baseAbsIndex={seg.tgt_range[0]}
+          hasPrevSegment={hasPrevSegment}
+          hasNextSegment={hasNextSegment}
           actions={actions}
           selectedKey={selectedKey}
           onSelect={onSelect}
@@ -214,6 +226,8 @@ interface ChunkListProps {
   accent: Side;
   chunks: string[];
   baseAbsIndex: number;
+  hasPrevSegment: boolean;
+  hasNextSegment: boolean;
   actions: AlignmentEditorActions;
   selectedKey: string | null;
   onSelect: (sel: Selection) => void;
@@ -224,7 +238,7 @@ interface ChunkListProps {
 }
 
 function ChunkList(props: ChunkListProps) {
-  const { accent, chunks, baseAbsIndex, actions, selectedKey, onSelect, caret, onCaretChange, editingKey, onRequestEdit } = props;
+  const { accent, chunks, baseAbsIndex, hasPrevSegment, hasNextSegment, actions, selectedKey, onSelect, caret, onCaretChange, editingKey, onRequestEdit } = props;
   if (chunks.length === 0) {
     return (
       <p className="flex h-full items-center justify-center px-3 py-2 text-xs italic text-neutral-400">
@@ -237,6 +251,8 @@ function ChunkList(props: ChunkListProps) {
       {chunks.map((text, i) => {
         const absIdx = baseAbsIndex + i;
         const key = chunkKey(accent, absIdx);
+        const isFirstInSeg = i === 0;
+        const isLastInSeg = i === chunks.length - 1;
         return (
           <li key={key}>
             <ChunkCard
@@ -250,6 +266,16 @@ function ChunkList(props: ChunkListProps) {
               onEdit={(t) => actions.editChunkText(accent, absIdx, t)}
               onSplit={(c) => actions.splitChunk(accent, absIdx, c)}
               onMergeNext={i < chunks.length - 1 ? () => actions.mergeWithNext(accent, absIdx) : undefined}
+              onMoveToPrevSegment={
+                isFirstInSeg && hasPrevSegment
+                  ? () => actions.moveChunkToPrevSegment(accent, absIdx)
+                  : undefined
+              }
+              onMoveToNextSegment={
+                isLastInSeg && hasNextSegment
+                  ? () => actions.moveChunkToNextSegment(accent, absIdx)
+                  : undefined
+              }
               onDelete={() => actions.deleteChunk(accent, absIdx)}
               onRequestEdit={(editing) => onRequestEdit?.(editing ? key : null)}
               caretFromState={selectedKey === key ? caret : null}

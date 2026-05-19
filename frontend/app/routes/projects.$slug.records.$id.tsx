@@ -24,6 +24,8 @@ import {
   insertBoundaryAfterChunk,
   isOnlyTextEdit,
   mergeWithNext,
+  moveChunkToNextSegment,
+  moveChunkToPrevSegment,
   moveSelection,
   removeBoundary,
   splitChunk,
@@ -157,6 +159,10 @@ export default function RecordEditor() {
       bumpBoundary: (pair, side, delta) =>
         applyMutation(bumpBoundary(stateRef.current, pair, side, delta)),
       removeBoundary: (pair) => applyMutation(removeBoundary(stateRef.current, pair)),
+      moveChunkToNextSegment: (side, i) =>
+        applyMutation(moveChunkToNextSegment(stateRef.current, side, i)),
+      moveChunkToPrevSegment: (side, i) =>
+        applyMutation(moveChunkToPrevSegment(stateRef.current, side, i)),
     }),
     [applyMutation],
   );
