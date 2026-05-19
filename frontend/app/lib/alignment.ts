@@ -25,7 +25,16 @@ export function sortedPairs(pairs: Pair[]): Pair[] {
 
 export function clampPairs(pairs: Pair[], nSrc: number, nTgt: number): Pair[] {
   return sortedPairs(
-    pairs.filter((p) => p[0] >= 1 && p[0] < nSrc && p[1] >= 1 && p[1] < nTgt),
+    pairs.filter((p) => {
+      if (p[0] < 1 || p[0] > nSrc) return false;
+      if (p[1] < 1 || p[1] > nTgt) return false;
+      // [nSrc, nTgt] coincides with the implicit end boundary appended in
+      // buildSegments; keeping it would spawn a ghost empty trailing segment.
+      // A boundary at [k, nTgt] (k<nSrc) — or [nSrc, k] (k<nTgt) — is valid:
+      // it puts all opposite-side content into the segment before the break.
+      if (p[0] === nSrc && p[1] === nTgt) return false;
+      return true;
+    }),
   );
 }
 
@@ -199,8 +208,9 @@ export function insertBoundaryAfterChunk(
   const newSideEnd = absChunkIndex + 1;
   const oppositeEnd = side === "src" ? containingSeg.tgt_range[1] : containingSeg.src_range[1];
   const newPair: Pair = side === "src" ? [newSideEnd, oppositeEnd] : [oppositeEnd, newSideEnd];
-  if (newPair[0] < 1 || newPair[0] >= state.srcChunks.length) return null;
-  if (newPair[1] < 1 || newPair[1] >= state.tgtChunks.length) return null;
+  if (newPair[0] < 1 || newPair[0] > state.srcChunks.length) return null;
+  if (newPair[1] < 1 || newPair[1] > state.tgtChunks.length) return null;
+  if (newPair[0] === state.srcChunks.length && newPair[1] === state.tgtChunks.length) return null;
   if (state.pairs.some((p) => p[0] === newPair[0] && p[1] === newPair[1])) return null;
   return { ...state, pairs: clampPairs([...state.pairs, newPair], state.srcChunks.length, state.tgtChunks.length) };
 }
@@ -224,7 +234,7 @@ export function bumpBoundary(
 ): AlignmentState | null {
   const idx = side === "src" ? 0 : 1;
   const others = state.pairs.filter((p) => !(p[0] === pair[0] && p[1] === pair[1]));
-  const limit = side === "src" ? state.srcChunks.length - 1 : state.tgtChunks.length - 1;
+  const limit = side === "src" ? state.srcChunks.length : state.tgtChunks.length;
   const lower = Math.max(0, ...others.filter((p) => (side === "src" ? p[0] < pair[0] : p[1] < pair[1])).map((p) => p[idx]));
   const upper = Math.min(
     limit,
@@ -234,6 +244,7 @@ export function bumpBoundary(
   if (next < Math.max(1, lower) || next > upper) return null;
   const updated: Pair = [pair[0], pair[1]];
   updated[idx] = next;
+  if (updated[0] === state.srcChunks.length && updated[1] === state.tgtChunks.length) return null;
   if (others.some((p) => p[0] === updated[0] && p[1] === updated[1])) return null;
   return {
     ...state,
