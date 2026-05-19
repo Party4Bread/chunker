@@ -15,6 +15,10 @@ interface ChunkCardProps {
   onEdit: (text: string) => void;
   onSplit: (caret: number) => void;
   onMergeNext?: () => void;
+  /** Set when the chunk is first-in-segment and a previous segment exists. */
+  onMoveToPrevSegment?: () => void;
+  /** Set when the chunk is last-in-segment and a next segment exists. */
+  onMoveToNextSegment?: () => void;
   onDelete: () => void;
   onRequestEdit: (editing: boolean) => void;
   caretFromState: number | null;
@@ -41,6 +45,8 @@ export function ChunkCard({
   onEdit,
   onSplit,
   onMergeNext,
+  onMoveToPrevSegment,
+  onMoveToNextSegment,
   onDelete,
   onRequestEdit,
   caretFromState,
@@ -111,6 +117,30 @@ export function ChunkCard({
               }}
             >
               ⇩
+            </IconBtn>
+          )}
+          {onMoveToPrevSegment && (
+            <IconBtn
+              label="move chunk into previous segment"
+              sizeClass={iconSize}
+              onClick={(e) => {
+                e.stopPropagation();
+                onMoveToPrevSegment();
+              }}
+            >
+              ⇈
+            </IconBtn>
+          )}
+          {onMoveToNextSegment && (
+            <IconBtn
+              label="move chunk into next segment"
+              sizeClass={iconSize}
+              onClick={(e) => {
+                e.stopPropagation();
+                onMoveToNextSegment();
+              }}
+            >
+              ⇊
             </IconBtn>
           )}
           <IconBtn

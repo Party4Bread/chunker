@@ -31,6 +31,7 @@ const SECTIONS: { title: string; rows: [string, string][] }[] = [
       ["b", "insert boundary after the selected chunk on its side"],
       ["click ◀ ▶", "shift the boundary on a divider one chunk earlier / later"],
       ["click merge ×", "remove a boundary, joining the two neighbouring segments"],
+      ["click ⇈ / ⇊", "move the chunk into the previous / next segment"],
     ],
   },
   {

@@ -138,6 +138,8 @@ export function MobileSegmentView({
           accent="src"
           chunks={seg.src}
           baseAbsIndex={seg.src_range[0]}
+          hasPrevSegment={safeIdx > 0}
+          hasNextSegment={safeIdx < total - 1}
           actions={actions}
           selectedKey={selectedKey}
           onSelect={onSelect}
@@ -152,6 +154,8 @@ export function MobileSegmentView({
           accent="tgt"
           chunks={seg.tgt}
           baseAbsIndex={seg.tgt_range[0]}
+          hasPrevSegment={safeIdx > 0}
+          hasNextSegment={safeIdx < total - 1}
           actions={actions}
           selectedKey={selectedKey}
           onSelect={onSelect}
@@ -217,6 +221,8 @@ interface ChunkColumnProps {
   accent: Side;
   chunks: string[];
   baseAbsIndex: number;
+  hasPrevSegment: boolean;
+  hasNextSegment: boolean;
   actions: AlignmentEditorActions;
   selectedKey: string | null;
   onSelect: (sel: Selection) => void;
@@ -227,7 +233,7 @@ interface ChunkColumnProps {
 }
 
 function ChunkColumn(props: ChunkColumnProps) {
-  const { accent, chunks, baseAbsIndex, actions, selectedKey, onSelect, caret, onCaretChange, editingKey, onRequestEdit } = props;
+  const { accent, chunks, baseAbsIndex, hasPrevSegment, hasNextSegment, actions, selectedKey, onSelect, caret, onCaretChange, editingKey, onRequestEdit } = props;
   if (chunks.length === 0) {
     return (
       <p className="px-2 py-2 text-xs italic text-neutral-400">
@@ -240,6 +246,8 @@ function ChunkColumn(props: ChunkColumnProps) {
       {chunks.map((text, i) => {
         const absIdx = baseAbsIndex + i;
         const key = chunkKey(accent, absIdx);
+        const isFirstInSeg = i === 0;
+        const isLastInSeg = i === chunks.length - 1;
         return (
           <li key={key}>
             <ChunkCard
@@ -254,6 +262,16 @@ function ChunkColumn(props: ChunkColumnProps) {
               onEdit={(t) => actions.editChunkText(accent, absIdx, t)}
               onSplit={(c) => actions.splitChunk(accent, absIdx, c)}
               onMergeNext={i < chunks.length - 1 ? () => actions.mergeWithNext(accent, absIdx) : undefined}
+              onMoveToPrevSegment={
+                isFirstInSeg && hasPrevSegment
+                  ? () => actions.moveChunkToPrevSegment(accent, absIdx)
+                  : undefined
+              }
+              onMoveToNextSegment={
+                isLastInSeg && hasNextSegment
+                  ? () => actions.moveChunkToNextSegment(accent, absIdx)
+                  : undefined
+              }
               onDelete={() => actions.deleteChunk(accent, absIdx)}
               onRequestEdit={(editing) => onRequestEdit?.(editing ? key : null)}
               caretFromState={selectedKey === key ? caret : null}

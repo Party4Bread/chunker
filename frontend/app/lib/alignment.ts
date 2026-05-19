@@ -241,6 +241,56 @@ export function bumpBoundary(
   };
 }
 
+/**
+ * Move the last chunk of `side` in the segment containing `absIndex` into the
+ * next segment. Implemented as a one-step bump of that segment's trailing
+ * boundary on `side`. Returns null if `absIndex` isn't the last chunk of its
+ * segment on `side`, or if there's no next segment, or if the boundary can't
+ * move (e.g. would collide with the leading boundary on that side).
+ */
+export function moveChunkToNextSegment(
+  state: AlignmentState,
+  side: Side,
+  absIndex: number,
+): AlignmentState | null {
+  const segments = buildSegments(state);
+  const segIdx = segments.findIndex((seg) => {
+    const range = side === "src" ? seg.src_range : seg.tgt_range;
+    return absIndex >= range[0] && absIndex < range[1];
+  });
+  if (segIdx < 0 || segIdx >= segments.length - 1) return null;
+  const seg = segments[segIdx];
+  const range = side === "src" ? seg.src_range : seg.tgt_range;
+  if (absIndex !== range[1] - 1) return null;
+  const trailing: Pair = [seg.src_range[1], seg.tgt_range[1]];
+  return bumpBoundary(state, trailing, side, -1);
+}
+
+/**
+ * Move the first chunk of `side` in the segment containing `absIndex` into
+ * the previous segment. Implemented as a one-step bump of that segment's
+ * leading boundary on `side`. Returns null if `absIndex` isn't the first chunk
+ * of its segment on `side`, or if there's no previous segment, or if the
+ * boundary can't move.
+ */
+export function moveChunkToPrevSegment(
+  state: AlignmentState,
+  side: Side,
+  absIndex: number,
+): AlignmentState | null {
+  const segments = buildSegments(state);
+  const segIdx = segments.findIndex((seg) => {
+    const range = side === "src" ? seg.src_range : seg.tgt_range;
+    return absIndex >= range[0] && absIndex < range[1];
+  });
+  if (segIdx <= 0) return null;
+  const seg = segments[segIdx];
+  const range = side === "src" ? seg.src_range : seg.tgt_range;
+  if (absIndex !== range[0]) return null;
+  const leading: Pair = [seg.src_range[0], seg.tgt_range[0]];
+  return bumpBoundary(state, leading, side, 1);
+}
+
 // ── selection navigation ───────────────────────────────────────────
 
 export function clampSelection(sel: Selection | null, state: AlignmentState): Selection | null {
