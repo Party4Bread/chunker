@@ -185,6 +185,7 @@ def predict_pairs(
     fallback_to_window: bool = True,
     window_chunks: int | None = None,
     min_window_chunks: int = 4,
+    lookahead_chunks: int | None = None,
 ) -> dict:
     """Run inference and return parsed/cleaned pairs plus the chunked-set view.
 
@@ -205,6 +206,7 @@ def predict_pairs(
             tgt_chunks,
             window_chunks=window_chunks,
             min_window_chunks=min_window_chunks,
+            lookahead_chunks=lookahead_chunks,
         )
     return _result_from_response(response_text, src_chunks, tgt_chunks, sample_text)
 
@@ -229,13 +231,18 @@ def predict_pairs_windowed(
     *,
     window_chunks: int | None = None,
     min_window_chunks: int = 4,
+    lookahead_chunks: int | None = None,
 ) -> dict:
     """Sliding-window alignment for prompts that exceed the model context.
 
-    Each window emits a list of cumulative ``(src_idx, tgt_idx)`` boundaries in local
-    coordinates. We drop the trailing pair (likely truncated near the window edge),
-    translate the rest to global coordinates, and start the next window at the last accepted boundary so we don't
-    double-emit it. Stops when no progress is made.
+    Each window shows the model a ``body + lookahead`` view of chunks on each side. Only boundaries that land inside the
+    body region are committed to the global result; pairs whose either index falls in the lookahead region are discarded
+    (the next window will re-emit them with full left context). The next window re-anchors at the last accepted
+    boundary, which gives a natural overlap.
+
+    ``lookahead_chunks`` defaults to ``max(1, body // 4)``. Setting it to 0 restores the legacy "drop last pair as
+    likely truncated" heuristic — useful when the model context is so tight that even one extra chunk per side does not
+    fit.
     """
     src_chunks = list(src_chunks)
     tgt_chunks = list(tgt_chunks)
@@ -248,28 +255,52 @@ def predict_pairs_windowed(
     if max_len is not None:
         max_input_tokens = max(client.config.min_output_tokens, max_len - output_budget)
 
-    window = window_chunks or max(min_window_chunks, max(n_src, n_tgt) // 2 or 1)
+    base_window = window_chunks or max(min_window_chunks, max(n_src, n_tgt) // 2 or 1)
+    if lookahead_chunks is None:
+        # ~25% lookahead — enough that the rightmost in-body boundary the model
+        # emits has real context past it, not a hard truncation. Skipped when the
+        # window itself is at or below min_window_chunks (no slack to give up).
+        lookahead_chunks = max(1, base_window // 4) if base_window > min_window_chunks else 0
+    look = max(0, lookahead_chunks)
+    # Don't clamp body to min_window_chunks: that's only enforced by the shrink
+    # loop below, and clamping here would silently widen a caller-specified
+    # window (e.g. window_chunks=3 with min=4).
+    body = max(1, base_window - look)
     s_cur, t_cur = 0, 0
     global_pairs: list[tuple[int, int]] = []
     response_chunks: list[str] = []
     parse_error_any = False
 
     while s_cur < n_src or t_cur < n_tgt:
-        s_end = min(n_src, s_cur + window)
-        t_end = min(n_tgt, t_cur + window)
-        # Shrink the window until the prompt fits (if we can measure tokens).
+        win_body = body
+        win_look = look
+        s_body_end = min(n_src, s_cur + win_body)
+        t_body_end = min(n_tgt, t_cur + win_body)
+        s_view_end = min(n_src, s_body_end + win_look)
+        t_view_end = min(n_tgt, t_body_end + win_look)
+        # Shrink to fit the model context. Lookahead is cheaper to give up than
+        # body, so drop it first; only then shrink the body itself.
         if max_input_tokens is not None:
-            while window > min_window_chunks:
-                trial_text = build_text(src_chunks[s_cur:s_end], tgt_chunks[t_cur:t_end])
+            while True:
+                trial_text = build_text(
+                    src_chunks[s_cur:s_view_end], tgt_chunks[t_cur:t_view_end]
+                )
                 trial_prompt = build_user_prompt(prompt_prefix, trial_text)
                 if client.count_chat_tokens(trial_prompt) <= max_input_tokens:
                     break
-                window = max(min_window_chunks, window // 2)
-                s_end = min(n_src, s_cur + window)
-                t_end = min(n_tgt, t_cur + window)
+                if win_look > 0:
+                    win_look = win_look // 2 if win_look > 1 else 0
+                elif win_body > min_window_chunks:
+                    win_body = max(min_window_chunks, win_body // 2)
+                else:
+                    break
+                s_body_end = min(n_src, s_cur + win_body)
+                t_body_end = min(n_tgt, t_cur + win_body)
+                s_view_end = min(n_src, s_body_end + win_look)
+                t_view_end = min(n_tgt, t_body_end + win_look)
 
-        is_final = s_end == n_src and t_end == n_tgt
-        local_text = build_text(src_chunks[s_cur:s_end], tgt_chunks[t_cur:t_end])
+        is_final = s_view_end == n_src and t_view_end == n_tgt
+        local_text = build_text(src_chunks[s_cur:s_view_end], tgt_chunks[t_cur:t_view_end])
         local_prompt = build_user_prompt(prompt_prefix, local_text)
         try:
             response_text = client.complete(local_prompt)
@@ -284,25 +315,40 @@ def predict_pairs_windowed(
             parse_error_any = True
             local_pairs: list[tuple[int, int]] = []
         else:
-            # Sort so the "drop last" advance below targets the rightmost boundary
-            # (i.e. the one closest to the window edge, most likely truncated) rather
-            # than whichever one the model happened to emit last.
-            local_pairs = monotonic_sort_pairs(raw_pairs, s_end - s_cur, t_end - t_cur)
+            local_pairs = monotonic_sort_pairs(
+                raw_pairs, s_view_end - s_cur, t_view_end - t_cur
+            )
 
-        if not local_pairs:
-            # Model produced nothing usable in this window — advance past it
-            # (forfeits boundaries here; everything in the span becomes one segment).
-            new_s, new_t = s_end, t_end
-        elif is_final:
+        body_s_local = s_body_end - s_cur
+        body_t_local = t_body_end - t_cur
+
+        if is_final:
             for ls, lt in local_pairs:
                 global_pairs.append((s_cur + ls, t_cur + lt))
             break
+
+        if win_look > 0:
+            # Drop pairs that point into the lookahead region — they are tentative
+            # and the next window will re-emit them with full left context. Keep
+            # everything strictly inside the body.
+            accepted = [
+                (ls, lt) for ls, lt in local_pairs
+                if ls <= body_s_local and lt <= body_t_local
+            ]
         else:
-            # Drop the last pair (likely truncated near window edge); fall back to
-            # accepting it if it's the only one we've got.
-            accepted = local_pairs[:-1] if len(local_pairs) > 1 else local_pairs
+            # No lookahead available (e.g. shrunk to fit context). Fall back to the
+            # legacy heuristic: drop the trailing pair as likely truncated.
+            accepted = local_pairs[:-1] if len(local_pairs) > 1 else list(local_pairs)
+
+        if not accepted:
+            # Model produced nothing usable in this window — advance past the body
+            # (forfeits boundaries here; everything in the span becomes one segment).
+            new_s, new_t = s_body_end, t_body_end
+        else:
             for ls, lt in accepted:
                 global_pairs.append((s_cur + ls, t_cur + lt))
+            # Anchor next window at the last accepted boundary; this gives natural
+            # overlap when the model placed its rightmost boundary before body end.
             last_s, last_t = accepted[-1]
             new_s, new_t = s_cur + last_s, t_cur + last_t
 
