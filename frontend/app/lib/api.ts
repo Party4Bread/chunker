@@ -36,10 +36,18 @@ export const api = {
     }),
   deleteRecord: (slug: string, id: number) => jsonFetch<void>(`/projects/${slug}/records/${id}`, { method: "DELETE" }),
 
-  reinfer: (slug: string, id: number, persist = true) =>
+  reinfer: (
+    slug: string,
+    id: number,
+    opts: { persist?: boolean; start_src_index?: number; start_tgt_index?: number } = {},
+  ) =>
     jsonFetch<InferOut>(`/projects/${slug}/records/${id}/reinfer`, {
       method: "POST",
-      body: JSON.stringify({ persist }),
+      body: JSON.stringify({
+        persist: opts.persist ?? true,
+        start_src_index: opts.start_src_index ?? 0,
+        start_tgt_index: opts.start_tgt_index ?? 0,
+      }),
     }),
 
   uploadRecord: async (

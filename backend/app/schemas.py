@@ -73,6 +73,8 @@ class InferRequest(BaseModel):
     """Re-run inference on the record's currently-saved chunks."""
 
     persist: bool = True
+    start_src_index: int = Field(default=0, ge=0)
+    start_tgt_index: int = Field(default=0, ge=0)
 
 
 class InferOut(BaseModel):
