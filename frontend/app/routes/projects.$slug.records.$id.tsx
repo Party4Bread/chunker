@@ -199,7 +199,26 @@ export default function RecordEditor() {
   const [proposal, setProposal] = useState<{ pairs: Pair[]; response: string; parseError: boolean } | null>(null);
 
   const reinferMut = useMutation({
-    mutationFn: () => api.reinfer(slug, recordId, false),
+    mutationFn: () => api.reinfer(slug, recordId, { persist: false }),
+    onSuccess: (out) => {
+      setProposal({
+        pairs: out.pairs as Pair[],
+        response: out.response,
+        parseError: out.parse_error,
+      });
+    },
+  });
+
+  const reinferBelowMut = useMutation({
+    mutationFn: () => {
+      const seg = segments[segmentIdx];
+      if (!seg) throw new Error("no segment selected");
+      return api.reinfer(slug, recordId, {
+        persist: false,
+        start_src_index: seg.src_range[1],
+        start_tgt_index: seg.tgt_range[1],
+      });
+    },
     onSuccess: (out) => {
       setProposal({
         pairs: out.pairs as Pair[],
@@ -394,8 +413,9 @@ export default function RecordEditor() {
     );
   }
 
-  const errorBanner = saveMut.isError || reinferMut.isError || reviewMut.isError;
+  const errorBanner = saveMut.isError || reinferMut.isError || reinferBelowMut.isError || reviewMut.isError;
   const queuePosition = currentIdx >= 0 ? `${currentIdx + 1} / ${ordered.length}` : `· / ${ordered.length}`;
+  const canReinferBelow = segmentIdx >= 0 && segmentIdx < segments.length - 1;
 
   return (
     <div className="editor-page min-h-screen lg:pb-8">
@@ -434,6 +454,15 @@ export default function RecordEditor() {
               disabled={reinferMut.isPending}
             >
               {reinferMut.isPending ? "running model…" : "↻ Re-infer"}
+            </button>
+            <button
+              type="button"
+              className="btn hidden lg:inline-flex"
+              onClick={() => reinferBelowMut.mutate()}
+              disabled={reinferBelowMut.isPending || !canReinferBelow}
+              title="re-pair segments below current segment"
+            >
+              {reinferBelowMut.isPending ? "running model…" : "↻ Re-pair below"}
             </button>
             <button
               type="button"
@@ -482,6 +511,7 @@ export default function RecordEditor() {
             <span className="font-medium">Couldn't reach the server.</span>{" "}
             {(saveMut.error as Error)?.message ||
               (reinferMut.error as Error)?.message ||
+              (reinferBelowMut.error as Error)?.message ||
               (reviewMut.error as Error)?.message}
           </div>
         )}

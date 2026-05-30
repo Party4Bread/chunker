@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from chunker_core.parsing import build_chunked_sets, prune_empty_chunks
+from chunker_core.parsing import build_chunked_sets, monotonic_sort_pairs, prune_empty_chunks
 
 from ..db import project_session, registry_session
 from ..models import ProjectMeta, Record
@@ -21,6 +21,23 @@ def _project_db(slug: str) -> Session:
 
 def _registry_db() -> Session:
     return next(registry_session())
+
+
+def _merge_pairs_for_reinfer(
+    existing_pairs: list[list[int]],
+    inferred_pairs: list[list[int]],
+    *,
+    start_src: int,
+    start_tgt: int,
+    n_src: int,
+    n_tgt: int,
+) -> list[list[int]]:
+    merged = [list(p) for p in existing_pairs if len(p) == 2 and int(p[0]) <= start_src and int(p[1]) <= start_tgt]
+    if (start_src > 0 or start_tgt > 0) and (start_src, start_tgt) != (n_src, n_tgt):
+        merged.append([start_src, start_tgt])
+    merged.extend([[start_src + int(p[0]), start_tgt + int(p[1])] for p in inferred_pairs if len(p) == 2])
+    canonical = monotonic_sort_pairs(merged, n_src, n_tgt)
+    return [[int(s), int(t)] for s, t in canonical]
 
 
 @router.post("/{record_id}/reinfer", response_model=InferOut)
@@ -45,13 +62,27 @@ def reinfer(
         record.gt_pairs or [],
         record.model_pairs or [],
     )
+    start_src = int(payload.start_src_index)
+    start_tgt = int(payload.start_tgt_index)
+    if start_src > len(src) or start_tgt > len(tgt):
+        raise HTTPException(status_code=400, detail="start index out of range")
 
-    try:
-        result = run_inference(src, tgt)
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"inference failed: {exc!s}") from exc
+    if start_src == len(src) and start_tgt == len(tgt):
+        result = {"pairs": [], "response": "", "parse_error": False}
+    else:
+        try:
+            result = run_inference(src[start_src:], tgt[start_tgt:])
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"inference failed: {exc!s}") from exc
 
-    cleaned = [[int(s), int(t)] for s, t in result["pairs"]]
+    cleaned = _merge_pairs_for_reinfer(
+        gt_shifted,
+        [[int(s), int(t)] for s, t in result["pairs"]],
+        start_src=start_src,
+        start_tgt=start_tgt,
+        n_src=len(src),
+        n_tgt=len(tgt),
+    )
 
     if payload.persist:
         record.src_chunks = src
