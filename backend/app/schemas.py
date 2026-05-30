@@ -55,6 +55,8 @@ class RecordOut(BaseModel):
     model_response: str | None
     status: Status
     notes: str | None
+    html_cleaned_src: bool = False
+    html_cleaned_tgt: bool = False
     chunked_sets: list[ChunkedSegment]
     created_at: dt.datetime
     updated_at: dt.datetime
@@ -75,8 +77,41 @@ class InferRequest(BaseModel):
     persist: bool = True
 
 
+class InferSuffixRequest(BaseModel):
+    """Re-run inference on a caller-provided suffix snapshot."""
+
+    from_index: int = Field(ge=0)
+    src_suffix: str
+    tgt_suffix: str
+    context_prefix_tail: str | None = None
+
+
+class RechunkBelowRequest(BaseModel):
+    """Rebuild and re-infer only the suffix below a locked pair."""
+
+    lock_until_pair_index: int = Field(ge=0)
+    src_suffix_text: str
+    tgt_suffix_text: str
+    max_source_chars: int = Field(default=2000, ge=200, le=10000)
+    target_source_chars: int = Field(default=1800, ge=100, le=10000)
+    context_prefix_tail: dict[str, str] | None = None
+
+
 class InferOut(BaseModel):
     response: str
     pairs: list[list[int]]
     chunked_sets: list[ChunkedSegment]
     parse_error: bool
+
+
+class InferSuffixOut(InferOut):
+    from_index: int
+    src_chunks: list[str]
+    tgt_chunks: list[str]
+
+
+class RechunkBelowOut(InferOut):
+    lock_until_pair_index: int
+    src_chunks: list[str]
+    tgt_chunks: list[str]
+    warnings: list[str] = Field(default_factory=list)

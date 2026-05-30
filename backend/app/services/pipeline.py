@@ -7,6 +7,7 @@ from pathlib import Path
 
 from chunker_core.llm import VllmClient, VllmClientConfig, predict_pairs
 from chunker_core.parsing import build_chunked_sets, normalize_raw_pairs, prune_empty_chunks
+from chunker_core.text_cleanup import cleanup_text_for_chunking
 
 from ..config import Settings, get_settings
 
@@ -48,9 +49,11 @@ def run_inference(src_chunks: list[str], tgt_chunks: list[str]) -> dict:
     return result
 
 
-def split_files(src_text: str, tgt_text: str) -> tuple[list[str], list[str]]:
+def split_files(src_text: str, tgt_text: str, clean_html: bool = True) -> tuple[list[str], list[str], bool, bool]:
     """Split raw text via wtpsplit. Falls back to line-splitting if SaT is unavailable."""
     settings = get_settings()
+    src_text, src_cleaned = cleanup_text_for_chunking(src_text, enabled=clean_html)
+    tgt_text, tgt_cleaned = cleanup_text_for_chunking(tgt_text, enabled=clean_html)
     src_chunks: list[str]
     tgt_chunks: list[str]
     if settings.enable_splitter:
@@ -67,7 +70,7 @@ def split_files(src_text: str, tgt_text: str) -> tuple[list[str], list[str]]:
         src_chunks = [line.strip() for line in src_text.splitlines() if line.strip()]
         tgt_chunks = [line.strip() for line in tgt_text.splitlines() if line.strip()]
     src_chunks, tgt_chunks, _ = prune_empty_chunks(src_chunks, tgt_chunks)
-    return src_chunks, tgt_chunks
+    return src_chunks, tgt_chunks, src_cleaned, tgt_cleaned
 
 
 def compute_chunked_sets(src_chunks: list[str], tgt_chunks: list[str], pairs: list[list[int]]):

@@ -10,6 +10,163 @@ export interface AlignmentState {
   pairs: Pair[];
 }
 
+export const DEFAULT_LONG_CHUNK_LIMIT = 2000;
+export const DEFAULT_SHORT_CHUNK_LIMIT = 100;
+export const DEFAULT_LENGTH_RATIO_LIMIT = 2.5;
+
+export interface ChunkHealth {
+  charCount: number;
+  isEmpty: boolean;
+  isLong: boolean;
+  isShort: boolean;
+}
+
+export interface ChunkQualitySummary {
+  totalChunks: number;
+  srcChunks: number;
+  tgtChunks: number;
+  emptyChunks: number;
+  longChunks: number;
+  shortChunks: number;
+  averageChars: number;
+  minChars: number;
+  maxChars: number;
+  srcTgtMismatch: boolean;
+  srcTgtLengthRatio: number | null;
+  srcTgtLengthRatioOutlier: boolean;
+}
+
+export type AlignmentSuggestion =
+  | { type: "missing_target"; pairNumber: number; srcChars: number }
+  | { type: "missing_source"; pairNumber: number; tgtChars: number }
+  | { type: "length_ratio_outlier"; pairNumber: number; srcChars: number; tgtChars: number; ratio: number };
+
+export function getChunkHealth(
+  text: string,
+  longLimit = DEFAULT_LONG_CHUNK_LIMIT,
+  shortLimit = DEFAULT_SHORT_CHUNK_LIMIT,
+): ChunkHealth {
+  const charCount = text.length;
+  const isEmpty = text.trim().length === 0;
+  return {
+    charCount,
+    isEmpty,
+    isLong: charCount > longLimit,
+    isShort: !isEmpty && charCount < shortLimit,
+  };
+}
+
+function lengthRatio(a: number, b: number): number | null {
+  const larger = Math.max(a, b);
+  const smaller = Math.min(a, b);
+  if (smaller > 0) return larger / smaller;
+  if (larger > 0) return Infinity;
+  return null;
+}
+
+export function getChunkQualitySummary(
+  state: AlignmentState,
+  longLimit = DEFAULT_LONG_CHUNK_LIMIT,
+  shortLimit = DEFAULT_SHORT_CHUNK_LIMIT,
+  ratioLimit = DEFAULT_LENGTH_RATIO_LIMIT,
+): ChunkQualitySummary {
+  const allChunks = [...state.srcChunks, ...state.tgtChunks];
+  const lengths = allChunks.map((chunk) => chunk.length);
+  const srcChars = state.srcChunks.reduce((sum, chunk) => sum + chunk.length, 0);
+  const tgtChars = state.tgtChunks.reduce((sum, chunk) => sum + chunk.length, 0);
+  const ratio = lengthRatio(srcChars, tgtChars);
+  let emptyChunks = 0;
+  let longChunks = 0;
+  let shortChunks = 0;
+  for (const chunk of allChunks) {
+    const health = getChunkHealth(chunk, longLimit, shortLimit);
+    if (health.isEmpty) emptyChunks += 1;
+    if (health.isLong) longChunks += 1;
+    if (health.isShort) shortChunks += 1;
+  }
+  return {
+    totalChunks: allChunks.length,
+    srcChunks: state.srcChunks.length,
+    tgtChunks: state.tgtChunks.length,
+    emptyChunks,
+    longChunks,
+    shortChunks,
+    averageChars: lengths.length ? Math.round(lengths.reduce((sum, n) => sum + n, 0) / lengths.length) : 0,
+    minChars: lengths.length ? Math.min(...lengths) : 0,
+    maxChars: lengths.length ? Math.max(...lengths) : 0,
+    srcTgtMismatch: state.srcChunks.length !== state.tgtChunks.length,
+    srcTgtLengthRatio: ratio,
+    srcTgtLengthRatioOutlier: ratio !== null && ratio > ratioLimit,
+  };
+}
+
+export function getAlignmentSuggestions(
+  state: AlignmentState,
+  ratioLimit = DEFAULT_LENGTH_RATIO_LIMIT,
+): AlignmentSuggestion[] {
+  const suggestions: AlignmentSuggestion[] = [];
+  const totalPairs = Math.max(state.srcChunks.length, state.tgtChunks.length);
+  for (let i = 0; i < totalPairs; i += 1) {
+    const src = state.srcChunks[i];
+    const tgt = state.tgtChunks[i];
+    const pairNumber = i + 1;
+    if (src !== undefined && tgt === undefined) {
+      suggestions.push({ type: "missing_target", pairNumber, srcChars: src.length });
+      continue;
+    }
+    if (src === undefined && tgt !== undefined) {
+      suggestions.push({ type: "missing_source", pairNumber, tgtChars: tgt.length });
+      continue;
+    }
+    if (src !== undefined && tgt !== undefined) {
+      const ratio = lengthRatio(src.length, tgt.length);
+      if (ratio !== null && ratio > ratioLimit) {
+        suggestions.push({
+          type: "length_ratio_outlier",
+          pairNumber,
+          srcChars: src.length,
+          tgtChars: tgt.length,
+          ratio,
+        });
+      }
+    }
+  }
+  return suggestions;
+}
+
+export function applyAlignmentPlaceholders(state: AlignmentState): AlignmentState {
+  const totalPairs = Math.max(state.srcChunks.length, state.tgtChunks.length);
+  if (state.srcChunks.length === totalPairs && state.tgtChunks.length === totalPairs) return state;
+  return {
+    srcChunks: [...state.srcChunks, ...Array(Math.max(0, totalPairs - state.srcChunks.length)).fill("")],
+    tgtChunks: [...state.tgtChunks, ...Array(Math.max(0, totalPairs - state.tgtChunks.length)).fill("")],
+    pairs: clampPairs(state.pairs, totalPairs, totalPairs),
+  };
+}
+
+export function buildSuffixReplacementState(
+  state: AlignmentState,
+  fromIndex: number,
+  suffixSrcChunks: string[],
+  suffixTgtChunks: string[],
+  suffixPairs: Pair[],
+): AlignmentState {
+  const lockedCount = Math.max(0, fromIndex + 1);
+  const srcChunks = [...state.srcChunks.slice(0, lockedCount), ...suffixSrcChunks];
+  const tgtChunks = [...state.tgtChunks.slice(0, lockedCount), ...suffixTgtChunks];
+  const prefixPairs = state.pairs.filter(([s, t]) => s <= lockedCount && t <= lockedCount);
+  const shiftedSuffixPairs: Pair[] = suffixPairs.map(([s, t]) => [s + lockedCount, t + lockedCount]);
+  const boundary: Pair[] =
+    lockedCount > 0 && lockedCount < srcChunks.length && lockedCount < tgtChunks.length
+      ? [[lockedCount, lockedCount]]
+      : [];
+  return {
+    srcChunks,
+    tgtChunks,
+    pairs: clampPairs([...prefixPairs, ...boundary, ...shiftedSuffixPairs], srcChunks.length, tgtChunks.length),
+  };
+}
+
 export function sortedPairs(pairs: Pair[]): Pair[] {
   const seen = new Set<string>();
   const out: Pair[] = [];
@@ -153,6 +310,82 @@ export function mergeWithNext(state: AlignmentState, side: Side, i: number): Ali
     }
     return p;
   });
+}
+
+export function mergeWithPrevious(state: AlignmentState, side: Side, i: number): AlignmentState {
+  if (i <= 0) return state;
+  return mergeWithNext(state, side, i - 1);
+}
+
+export function moveChunk(state: AlignmentState, side: Side, i: number, delta: -1 | 1): AlignmentState {
+  const arr = side === "src" ? state.srcChunks : state.tgtChunks;
+  const j = i + delta;
+  if (i < 0 || i >= arr.length || j < 0 || j >= arr.length) return state;
+  const next = [...arr];
+  const [chunk] = next.splice(i, 1);
+  next.splice(j, 0, chunk);
+  return chunksAndPairsFor(state, side, next, (p) => p);
+}
+
+const SENTENCE_TERMINATORS = new Set([".", "?", "!", "。", "？", "！"]);
+const CLOSING_PUNCTUATION = new Set(['"', "'", "”", "’", ")", "]", "}", "」", "』"]);
+
+function sentenceBoundaryEnd(text: string, terminatorIndex: number): number {
+  let end = terminatorIndex + 1;
+  while (end < text.length && CLOSING_PUNCTUATION.has(text[end])) end += 1;
+  return end;
+}
+
+function firstSentenceBoundary(text: string): number {
+  for (let i = 0; i < text.length; i += 1) {
+    if (SENTENCE_TERMINATORS.has(text[i])) return sentenceBoundaryEnd(text, i);
+  }
+  return text.length;
+}
+
+function lastSentenceBoundary(text: string): number {
+  for (let i = text.length - 1; i >= 0; i -= 1) {
+    if (!SENTENCE_TERMINATORS.has(text[i])) continue;
+    for (let j = i - 1; j >= 0; j -= 1) {
+      if (SENTENCE_TERMINATORS.has(text[j])) return sentenceBoundaryEnd(text, j);
+    }
+    return 0;
+  }
+  return 0;
+}
+
+function joinSentences(left: string, right: string): string {
+  if (!left.trim()) return right.trim();
+  if (!right.trim()) return left.trim();
+  return `${left.trim()} ${right.trim()}`.replace(/\s+/g, " ");
+}
+
+export function pullSentenceFromNext(state: AlignmentState, side: Side, i: number): AlignmentState {
+  const arr = side === "src" ? state.srcChunks : state.tgtChunks;
+  if (i < 0 || i >= arr.length - 1) return state;
+  const nextText = arr[i + 1].trim();
+  if (!nextText) return state;
+  const cut = firstSentenceBoundary(nextText);
+  const sentence = nextText.slice(0, cut).trim();
+  const rest = nextText.slice(cut).trim();
+  const next = [...arr];
+  next[i] = joinSentences(next[i], sentence);
+  next[i + 1] = rest;
+  return chunksAndPairsFor(state, side, next, (p) => p);
+}
+
+export function pushSentenceToNext(state: AlignmentState, side: Side, i: number): AlignmentState {
+  const arr = side === "src" ? state.srcChunks : state.tgtChunks;
+  if (i < 0 || i >= arr.length - 1) return state;
+  const currentText = arr[i].trim();
+  if (!currentText) return state;
+  const cut = lastSentenceBoundary(currentText);
+  const sentence = currentText.slice(cut).trim();
+  const rest = currentText.slice(0, cut).trim();
+  const next = [...arr];
+  next[i] = rest;
+  next[i + 1] = joinSentences(sentence, next[i + 1]);
+  return chunksAndPairsFor(state, side, next, (p) => p);
 }
 
 export function deleteChunk(state: AlignmentState, side: Side, i: number): AlignmentState {

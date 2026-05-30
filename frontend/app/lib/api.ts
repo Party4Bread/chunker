@@ -1,4 +1,4 @@
-import type { InferOut, Project, RecordOut, RecordPatch, RecordSummary } from "./types";
+import type { InferOut, InferSuffixOut, Project, RechunkBelowOut, RecordOut, RecordPatch, RecordSummary } from "./types";
 
 const API_BASE = "/api";
 
@@ -42,17 +42,45 @@ export const api = {
       body: JSON.stringify({ persist }),
     }),
 
+  reinferSuffix: (
+    slug: string,
+    id: number,
+    body: { from_index: number; src_suffix: string; tgt_suffix: string; context_prefix_tail?: string },
+  ) =>
+    jsonFetch<InferSuffixOut>(`/projects/${slug}/records/${id}/reinfer-suffix`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  rechunkBelow: (
+    slug: string,
+    id: number,
+    body: {
+      lock_until_pair_index: number;
+      src_suffix_text: string;
+      tgt_suffix_text: string;
+      max_source_chars?: number;
+      target_source_chars?: number;
+      context_prefix_tail?: { src: string; tgt: string };
+    },
+  ) =>
+    jsonFetch<RechunkBelowOut>(`/projects/${slug}/records/${id}/rechunk-below`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
   uploadRecord: async (
     slug: string,
     src: File,
     tgt: File,
-    opts: { title?: string; runModel?: boolean } = {},
+    opts: { title?: string; runModel?: boolean; cleanHtml?: boolean } = {},
   ): Promise<RecordOut> => {
     const fd = new FormData();
     fd.append("src_file", src);
     fd.append("tgt_file", tgt);
     if (opts.title) fd.append("title", opts.title);
     fd.append("run_model", opts.runModel === false ? "false" : "true");
+    fd.append("clean_html", opts.cleanHtml === false ? "false" : "true");
     const res = await fetch(`${API_BASE}/projects/${slug}/records/upload`, {
       method: "POST",
       body: fd,

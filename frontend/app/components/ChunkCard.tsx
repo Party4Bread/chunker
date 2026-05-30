@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef } from "react";
-import type { Side } from "~/lib/alignment";
+import { DEFAULT_LONG_CHUNK_LIMIT, DEFAULT_SHORT_CHUNK_LIMIT, getChunkHealth, type Side } from "~/lib/alignment";
 
 interface ChunkCardProps {
   displayIndex: number;
@@ -14,7 +14,13 @@ interface ChunkCardProps {
   onCaretChange: (caret: number) => void;
   onEdit: (text: string) => void;
   onSplit: (caret: number) => void;
+  onMergePrevious?: () => void;
   onMergeNext?: () => void;
+  onMoveUp?: () => void;
+  onMoveDown?: () => void;
+  onPullFromNext?: () => void;
+  onPushToNext?: () => void;
+  onRechunkBelow?: () => void;
   /** Set when the chunk is first-in-segment and a previous segment exists. */
   onMoveToPrevSegment?: () => void;
   /** Set when the chunk is last-in-segment and a next segment exists. */
@@ -44,7 +50,13 @@ export function ChunkCard({
   onCaretChange,
   onEdit,
   onSplit,
+  onMergePrevious,
   onMergeNext,
+  onMoveUp,
+  onMoveDown,
+  onPullFromNext,
+  onPushToNext,
+  onRechunkBelow,
   onMoveToPrevSegment,
   onMoveToNextSegment,
   onDelete,
@@ -54,8 +66,17 @@ export function ChunkCard({
   const ref = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const gutter = accent === "src" ? "gutter-src" : "gutter-tgt";
+  const health = getChunkHealth(text);
   const ring = selected ? "ring-2 ring-offset-1 ring-ink" : "";
+  const warningTone = health.isEmpty
+    ? "border-amber-300 bg-amber-50/60"
+    : health.isLong
+      ? "border-orange-300 bg-orange-50/50"
+      : health.isShort
+        ? "border-sky-300 bg-sky-50/60"
+        : "border-neutral-200 bg-white";
   const iconSize = variant === "mobile" ? "h-9 w-9 text-base" : "h-7 w-7 text-sm";
+  const wideIconSize = variant === "mobile" ? "h-9 min-w-[48px] px-1.5 text-xs" : "h-7 min-w-[42px] px-1.5 text-2xs";
 
   useEffect(() => {
     if (selected && ref.current) {
@@ -84,17 +105,39 @@ export function ChunkCard({
   return (
     <div
       ref={ref}
-      className={`rounded-md border border-neutral-200 bg-white pl-3 pr-2.5 py-2 transition ${gutter} hover:border-neutral-300 ${ring}`}
+      className={`rounded-md border pl-3 pr-2.5 py-2 transition ${gutter} hover:border-neutral-300 ${warningTone} ${ring}`}
     >
       <div className="mb-1 flex items-center justify-between gap-2">
-        <span className="flex items-baseline gap-1.5">
-          <span className="font-mono text-2xs font-semibold text-neutral-500">[|{displayIndex}|]</span>
+        <span className="flex flex-wrap items-baseline gap-1.5">
+          <span className="font-mono text-2xs font-semibold text-neutral-500">Pair {displayIndex}</span>
+          <span className="font-mono text-2xs text-neutral-400">[|{displayIndex}|]</span>
           <span
             className="font-mono text-2xs text-neutral-400"
             title={`${text.length} characters`}
           >
             {text.length}ch
           </span>
+          {health.isEmpty && (
+            <span className="rounded border border-amber-300 bg-amber-100 px-1 text-2xs font-medium text-amber-800">
+              empty
+            </span>
+          )}
+          {health.isLong && (
+            <span
+              className="rounded border border-orange-300 bg-orange-100 px-1 text-2xs font-medium text-orange-800"
+              title={`More than ${DEFAULT_LONG_CHUNK_LIMIT} characters`}
+            >
+              long
+            </span>
+          )}
+          {health.isShort && (
+            <span
+              className="rounded border border-sky-300 bg-sky-100 px-1 text-2xs font-medium text-sky-800"
+              title={`Less than ${DEFAULT_SHORT_CHUNK_LIMIT} characters`}
+            >
+              short
+            </span>
+          )}
         </span>
         <div className="flex flex-wrap gap-0.5">
           <IconBtn
@@ -102,11 +145,23 @@ export function ChunkCard({
             sizeClass={iconSize}
             onClick={(e) => {
               e.stopPropagation();
-              onSplit(caretFromState ?? 0);
+              onSplit(taRef.current?.selectionStart ?? caretFromState ?? Math.floor(text.length / 2));
             }}
           >
             ✂
           </IconBtn>
+          {onMergePrevious && (
+            <IconBtn
+              label="merge with previous chunk"
+              sizeClass={iconSize}
+              onClick={(e) => {
+                e.stopPropagation();
+                onMergePrevious();
+              }}
+            >
+              P
+            </IconBtn>
+          )}
           {onMergeNext && (
             <IconBtn
               label="merge with next chunk"
@@ -117,6 +172,66 @@ export function ChunkCard({
               }}
             >
               ⇩
+            </IconBtn>
+          )}
+          {onMoveUp && (
+            <IconBtn
+              label="move chunk up"
+              sizeClass={iconSize}
+              onClick={(e) => {
+                e.stopPropagation();
+                onMoveUp();
+              }}
+            >
+              Up
+            </IconBtn>
+          )}
+          {onMoveDown && (
+            <IconBtn
+              label="move chunk down"
+              sizeClass={iconSize}
+              onClick={(e) => {
+                e.stopPropagation();
+                onMoveDown();
+              }}
+            >
+              Dn
+            </IconBtn>
+          )}
+          {onPullFromNext && (
+            <IconBtn
+              label="pull first sentence from next chunk"
+              sizeClass={wideIconSize}
+              onClick={(e) => {
+                e.stopPropagation();
+                onPullFromNext();
+              }}
+            >
+              Pull
+            </IconBtn>
+          )}
+          {onPushToNext && (
+            <IconBtn
+              label="push last sentence to next chunk"
+              sizeClass={wideIconSize}
+              onClick={(e) => {
+                e.stopPropagation();
+                onPushToNext();
+              }}
+            >
+              Push
+            </IconBtn>
+          )}
+          {onRechunkBelow && (
+            <IconBtn
+              label="re-chunk below this pair"
+              sizeClass={wideIconSize}
+              onClick={(e) => {
+                e.stopPropagation();
+                onRechunkBelow();
+              }}
+            >
+              Re-chunk
             </IconBtn>
           )}
           {onMoveToPrevSegment && (

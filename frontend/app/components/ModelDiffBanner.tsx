@@ -4,24 +4,18 @@ interface ModelDiffBannerProps {
   modelPairs: Pair[];
   draftPairs: Pair[];
   parseError?: boolean;
-  /** When true, render Apply / Discard buttons. */
   pending?: boolean;
   onApply?: () => void;
   onDiscard?: () => void;
   applying?: boolean;
+  canApplyWhenSame?: boolean;
 }
 
 function key(p: Pair): string {
   return `${p[0]}-${p[1]}`;
 }
 
-interface Diff {
-  kept: number;
-  removed: number;
-  added: number;
-}
-
-function diff(model: Pair[], draft: Pair[]): Diff {
+function diff(model: Pair[], draft: Pair[]) {
   const modelSet = new Set(model.map(key));
   const draftSet = new Set(draft.map(key));
   return {
@@ -39,6 +33,7 @@ export function ModelDiffBanner({
   onApply,
   onDiscard,
   applying,
+  canApplyWhenSame,
 }: ModelDiffBannerProps) {
   if (parseError) {
     return (
@@ -46,7 +41,7 @@ export function ModelDiffBanner({
         <span className="flex items-start gap-2">
           <span className="mt-1.5 inline-block h-2 w-2 rounded-full bg-srcOnly" />
           <span>
-            <span className="font-medium text-ink">Model output didn't parse.</span>{" "}
+            <span className="font-medium text-ink">Model output did not parse.</span>{" "}
             <span className="text-neutral-600">Re-infer to try again, or place boundaries by hand.</span>
           </span>
         </span>
@@ -62,13 +57,14 @@ export function ModelDiffBanner({
   if (modelPairs.length === 0 && draftPairs.length === 0) {
     return (
       <p className="text-xs text-neutral-500">
-        No model proposal yet. Press <span className="font-mono">↻ Re-infer</span> to ask the model.
+        No model proposal yet. Press <span className="font-mono">Re-infer</span> to ask the model.
       </p>
     );
   }
 
   const d = diff(modelPairs, draftPairs);
   const totalChanges = d.removed + d.added;
+  const canApply = totalChanges > 0 || !!canApplyWhenSame;
 
   if (pending) {
     return (
@@ -76,14 +72,12 @@ export function ModelDiffBanner({
         <span className="flex items-center gap-3">
           <span className="font-medium text-ink">Model proposal ready.</span>
           {totalChanges === 0 ? (
-            <span className="text-neutral-600">Matches your current draft exactly.</span>
+            <span className="text-neutral-600">
+              {canApplyWhenSame ? "Pair boundaries match; chunks may still change." : "Matches your current draft exactly."}
+            </span>
           ) : (
             <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-neutral-600">
-              {d.kept > 0 && (
-                <span>
-                  <span className="font-mono text-ink">{d.kept}</span> would stay
-                </span>
-              )}
+              {d.kept > 0 && <span><span className="font-mono text-ink">{d.kept}</span> would stay</span>}
               {d.removed > 0 && (
                 <span className="flex items-center gap-1">
                   <span className="inline-block h-1 w-1 rounded-full bg-red-500" />
@@ -106,10 +100,14 @@ export function ModelDiffBanner({
           <button
             type="button"
             onClick={onApply}
-            disabled={applying || totalChanges === 0}
+            disabled={applying || !canApply}
             className="btn-primary !min-h-[32px] !px-3 text-xs"
           >
-            {applying ? "Applying…" : totalChanges === 0 ? "Same as draft" : `Apply ${totalChanges} change${totalChanges === 1 ? "" : "s"}`}
+            {applying
+              ? "Applying..."
+              : totalChanges === 0
+                ? "Apply rechunk"
+                : `Apply ${totalChanges} change${totalChanges === 1 ? "" : "s"}`}
           </button>
         </span>
       </div>
@@ -129,11 +127,7 @@ export function ModelDiffBanner({
   return (
     <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-neutral-600">
       <span className="text-neutral-500">vs. last model run:</span>
-      {d.kept > 0 && (
-        <span className="flex items-center gap-1">
-          <span className="font-mono text-ink">{d.kept}</span> kept
-        </span>
-      )}
+      {d.kept > 0 && <span><span className="font-mono text-ink">{d.kept}</span> kept</span>}
       {d.removed > 0 && (
         <span className="flex items-center gap-1">
           <span className="inline-block h-1 w-1 rounded-full bg-red-500" />

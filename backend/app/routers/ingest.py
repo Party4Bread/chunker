@@ -36,6 +36,7 @@ async def ingest_files(
     tgt_file: UploadFile = File(...),
     title: str | None = Form(default=None),
     run_model: bool = Form(default=True),
+    clean_html: bool = Form(default=True),
     registry: Session = Depends(_registry_db),
     db: Session = Depends(_project_db),
 ) -> RecordOut:
@@ -45,7 +46,7 @@ async def ingest_files(
 
     src_text = await _read_text(src_file)
     tgt_text = await _read_text(tgt_file)
-    src_chunks, tgt_chunks = split_files(src_text, tgt_text)
+    src_chunks, tgt_chunks, src_cleaned, tgt_cleaned = split_files(src_text, tgt_text, clean_html=clean_html)
     if not src_chunks or not tgt_chunks:
         raise HTTPException(status_code=400, detail="files produced no chunks")
 
@@ -70,6 +71,8 @@ async def ingest_files(
         model_pairs=[list(p) for p in model_pairs],
         model_response=response_text,
         status="draft",
+        html_cleaned_src=src_cleaned,
+        html_cleaned_tgt=tgt_cleaned,
     )
     db.add(record)
     db.commit()
@@ -91,6 +94,8 @@ async def ingest_files(
         model_response=record.model_response,
         status=record.status,
         notes=record.notes,
+        html_cleaned_src=src_cleaned,
+        html_cleaned_tgt=tgt_cleaned,
         chunked_sets=[ChunkedSegment(**seg) for seg in chunked],
         created_at=record.created_at,
         updated_at=record.updated_at,

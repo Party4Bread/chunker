@@ -14,6 +14,7 @@ from pathlib import Path
 
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
+from sqlalchemy import text
 from sqlalchemy.orm import Session, sessionmaker
 
 from .config import get_settings
@@ -56,8 +57,19 @@ def get_project_engine(slug: str) -> Engine:
         if engine is None:
             engine = _make_engine(project_db_path(slug))
             ProjectBase.metadata.create_all(engine)
+            _ensure_record_columns(engine)
             _engines[slug] = engine
     return engine
+
+
+def _ensure_record_columns(engine: Engine) -> None:
+    with engine.begin() as conn:
+        rows = conn.execute(text("PRAGMA table_info(records)")).mappings().all()
+        columns = {row["name"] for row in rows}
+        if "html_cleaned_src" not in columns:
+            conn.execute(text("ALTER TABLE records ADD COLUMN html_cleaned_src BOOLEAN NOT NULL DEFAULT 0"))
+        if "html_cleaned_tgt" not in columns:
+            conn.execute(text("ALTER TABLE records ADD COLUMN html_cleaned_tgt BOOLEAN NOT NULL DEFAULT 0"))
 
 
 def drop_project_engine(slug: str) -> None:

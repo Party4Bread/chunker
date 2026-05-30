@@ -40,6 +40,8 @@ export interface RecordOut {
   model_response: string | null;
   status: Status;
   notes: string | null;
+  html_cleaned_src: boolean;
+  html_cleaned_tgt: boolean;
   chunked_sets: ChunkedSegment[];
   created_at: string;
   updated_at: string;
@@ -59,4 +61,17 @@ export interface InferOut {
   pairs: [number, number][];
   chunked_sets: ChunkedSegment[];
   parse_error: boolean;
+}
+
+export interface InferSuffixOut extends InferOut {
+  from_index: number;
+  src_chunks: string[];
+  tgt_chunks: string[];
+}
+
+export interface RechunkBelowOut extends InferOut {
+  lock_until_pair_index: number;
+  src_chunks: string[];
+  tgt_chunks: string[];
+  warnings: string[];
 }

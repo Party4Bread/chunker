@@ -63,6 +63,8 @@ def _to_out(record: Record) -> RecordOut:
         model_response=record.model_response,
         status=record.status,
         notes=record.notes,
+        html_cleaned_src=bool(record.html_cleaned_src),
+        html_cleaned_tgt=bool(record.html_cleaned_tgt),
         chunked_sets=[ChunkedSegment(**seg) for seg in chunked],
         created_at=record.created_at,
         updated_at=record.updated_at,

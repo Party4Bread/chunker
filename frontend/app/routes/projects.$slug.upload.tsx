@@ -11,11 +11,12 @@ export default function UploadPair() {
   const [tgt, setTgt] = useState<File | null>(null);
   const [title, setTitle] = useState("");
   const [runModel, setRunModel] = useState(true);
+  const [cleanHtml, setCleanHtml] = useState(true);
 
   const mut = useMutation({
     mutationFn: async () => {
       if (!src || !tgt) throw new Error("pick both files");
-      return api.uploadRecord(slug, src, tgt, { title: title.trim() || undefined, runModel });
+      return api.uploadRecord(slug, src, tgt, { title: title.trim() || undefined, runModel, cleanHtml });
     },
     onSuccess: (rec) => navigate(`/projects/${slug}/records/${rec.id}`),
   });
@@ -62,6 +63,20 @@ export default function UploadPair() {
               onChange={(e) => setTgt(e.target.files?.[0] ?? null)}
             />
             <span className="mt-1 block text-2xs text-neutral-500">{tgt ? tgt.name : "plain text, UTF-8"}</span>
+          </label>
+          <label className="flex items-start gap-2 text-sm">
+            <input
+              type="checkbox"
+              className="mt-1"
+              checked={cleanHtml}
+              onChange={(e) => setCleanHtml(e.target.checked)}
+            />
+            <span>
+              <span className="font-medium text-ink">clean HTML before chunking</span>
+              <span className="block text-xs text-neutral-500">
+                removes tags, scripts, styles, comments, and decodes HTML entities while keeping readable line breaks.
+              </span>
+            </span>
           </label>
           <label className="flex items-start gap-2 text-sm">
             <input

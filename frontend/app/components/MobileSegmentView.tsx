@@ -138,6 +138,7 @@ export function MobileSegmentView({
           accent="src"
           chunks={seg.src}
           baseAbsIndex={seg.src_range[0]}
+          totalChunks={state.srcChunks.length}
           hasPrevSegment={safeIdx > 0}
           hasNextSegment={safeIdx < total - 1}
           actions={actions}
@@ -154,6 +155,7 @@ export function MobileSegmentView({
           accent="tgt"
           chunks={seg.tgt}
           baseAbsIndex={seg.tgt_range[0]}
+          totalChunks={state.tgtChunks.length}
           hasPrevSegment={safeIdx > 0}
           hasNextSegment={safeIdx < total - 1}
           actions={actions}
@@ -221,6 +223,7 @@ interface ChunkColumnProps {
   accent: Side;
   chunks: string[];
   baseAbsIndex: number;
+  totalChunks: number;
   hasPrevSegment: boolean;
   hasNextSegment: boolean;
   actions: AlignmentEditorActions;
@@ -233,7 +236,7 @@ interface ChunkColumnProps {
 }
 
 function ChunkColumn(props: ChunkColumnProps) {
-  const { accent, chunks, baseAbsIndex, hasPrevSegment, hasNextSegment, actions, selectedKey, onSelect, caret, onCaretChange, editingKey, onRequestEdit } = props;
+  const { accent, chunks, baseAbsIndex, totalChunks, hasPrevSegment, hasNextSegment, actions, selectedKey, onSelect, caret, onCaretChange, editingKey, onRequestEdit } = props;
   if (chunks.length === 0) {
     return (
       <p className="px-2 py-2 text-xs italic text-neutral-400">
@@ -261,7 +264,13 @@ function ChunkColumn(props: ChunkColumnProps) {
               onCaretChange={onCaretChange}
               onEdit={(t) => actions.editChunkText(accent, absIdx, t)}
               onSplit={(c) => actions.splitChunk(accent, absIdx, c)}
+              onMergePrevious={absIdx > 0 ? () => actions.mergeWithPrevious(accent, absIdx) : undefined}
               onMergeNext={i < chunks.length - 1 ? () => actions.mergeWithNext(accent, absIdx) : undefined}
+              onMoveUp={absIdx > 0 ? () => actions.moveChunkUp(accent, absIdx) : undefined}
+              onMoveDown={absIdx < totalChunks - 1 ? () => actions.moveChunkDown(accent, absIdx) : undefined}
+              onPullFromNext={absIdx < totalChunks - 1 ? () => actions.pullFromNext(accent, absIdx) : undefined}
+              onPushToNext={absIdx < totalChunks - 1 ? () => actions.pushToNext(accent, absIdx) : undefined}
+              onRechunkBelow={absIdx < totalChunks - 1 ? () => actions.rechunkBelow(absIdx) : undefined}
               onMoveToPrevSegment={
                 isFirstInSeg && hasPrevSegment
                   ? () => actions.moveChunkToPrevSegment(accent, absIdx)

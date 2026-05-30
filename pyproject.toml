@@ -9,6 +9,9 @@ dependencies = ["httpx>=0.27"]
 splitter = ["wtpsplit>=2.0", "transformers>=4.40", "huggingface-hub>=0.24", "onnxruntime>=1.17"]
 embedded = ["vllm>=0.6", "transformers>=4.40"]
 
+[tool.hatch.build.targets.sdist]
+include = ["/chunker_core"]
+
 [tool.hatch.build.targets.wheel]
 packages = ["chunker_core"]
 
