@@ -1,4 +1,4 @@
-import type { InferOut, Project, RecordOut, RecordPatch, RecordSummary } from "./types";
+import type { BatchUploadOut, InferOut, Project, RecordOut, RecordPatch, RecordSummary, TranslateSourceOut } from "./types";
 
 const API_BASE = "/api";
 
@@ -49,6 +49,11 @@ export const api = {
         start_tgt_index: opts.start_tgt_index ?? 0,
       }),
     }),
+  translateSource: (slug: string, id: number, targetLanguage?: string) =>
+    jsonFetch<TranslateSourceOut>(`/projects/${slug}/records/${id}/translate-source`, {
+      method: "POST",
+      body: JSON.stringify({ target_language: targetLanguage?.trim() || null }),
+    }),
 
   uploadRecord: async (
     slug: string,
@@ -69,6 +74,26 @@ export const api = {
       throw new Error(`${res.status} ${res.statusText}: ${await res.text()}`);
     }
     return (await res.json()) as RecordOut;
+  },
+
+  uploadBatchRecords: async (
+    slug: string,
+    srcFiles: File[],
+    tgtFiles: File[],
+    opts: { runModel?: boolean } = {},
+  ): Promise<BatchUploadOut> => {
+    const fd = new FormData();
+    for (const file of srcFiles) fd.append("src_files", file);
+    for (const file of tgtFiles) fd.append("tgt_files", file);
+    fd.append("run_model", opts.runModel === false ? "false" : "true");
+    const res = await fetch(`${API_BASE}/projects/${slug}/records/upload/batch`, {
+      method: "POST",
+      body: fd,
+    });
+    if (!res.ok) {
+      throw new Error(`${res.status} ${res.statusText}: ${await res.text()}`);
+    }
+    return (await res.json()) as BatchUploadOut;
   },
 
   exportUrl: (slug: string, include: "reviewed" | "all" = "reviewed") =>

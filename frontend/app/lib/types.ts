@@ -60,3 +60,20 @@ export interface InferOut {
   chunked_sets: ChunkedSegment[];
   parse_error: boolean;
 }
+
+export interface TranslateSourceOut {
+  translations: string[];
+  response: string;
+  parse_error: boolean;
+}
+
+export interface BatchUploadError {
+  src_file: string | null;
+  tgt_file: string | null;
+  detail: string;
+}
+
+export interface BatchUploadOut {
+  records: RecordOut[];
+  errors: BatchUploadError[];
+}

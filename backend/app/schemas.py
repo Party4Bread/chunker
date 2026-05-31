@@ -60,6 +60,17 @@ class RecordOut(BaseModel):
     updated_at: dt.datetime
 
 
+class BatchUploadError(BaseModel):
+    src_file: str | None = None
+    tgt_file: str | None = None
+    detail: str
+
+
+class BatchUploadOut(BaseModel):
+    records: list[RecordOut]
+    errors: list[BatchUploadError]
+
+
 class RecordPatch(BaseModel):
     title: str | None = None
     src_chunks: list[str] | None = None
@@ -81,4 +92,14 @@ class InferOut(BaseModel):
     response: str
     pairs: list[list[int]]
     chunked_sets: list[ChunkedSegment]
+    parse_error: bool
+
+
+class TranslateSourceRequest(BaseModel):
+    target_language: str | None = None
+
+
+class TranslateSourceOut(BaseModel):
+    translations: list[str]
+    response: str
     parse_error: bool

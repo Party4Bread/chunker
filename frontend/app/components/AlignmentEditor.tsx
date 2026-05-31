@@ -35,6 +35,7 @@ interface AlignmentEditorProps {
   /** Set when the user clicks a chunk's textarea — focuses it for typing. */
   editingKey?: string | null;
   onRequestEdit?: (key: string | null) => void;
+  sourceTranslations?: string[] | null;
 }
 
 const TYPE_LABEL: Record<ChunkedSegment["type"], string> = {
@@ -44,11 +45,15 @@ const TYPE_LABEL: Record<ChunkedSegment["type"], string> = {
   empty: "empty",
 };
 
+// Tone classes live in styles.css and lift their alphas in dark mode.
+// Aligned is intentionally the quietest (it's "done"); the unaligned variants
+// carry more chroma because they're the action items. Empty is a dashed
+// border on no fill so it reads as absence rather than as a category.
 const TYPE_TONE: Record<ChunkedSegment["type"], string> = {
-  aligned: "bg-aligned/[0.04] ring-aligned/30",
-  src_only_unaligned: "bg-srcOnly/[0.06] ring-srcOnly/30",
-  tgt_only_unaligned: "bg-tgtOnly/[0.05] ring-tgtOnly/30",
-  empty: "bg-neutral-100 ring-neutral-300",
+  aligned: "tone-aligned",
+  src_only_unaligned: "tone-src-only",
+  tgt_only_unaligned: "tone-tgt-only",
+  empty: "tone-empty",
 };
 
 const TYPE_DOT: Record<ChunkedSegment["type"], string> = {
@@ -56,6 +61,13 @@ const TYPE_DOT: Record<ChunkedSegment["type"], string> = {
   src_only_unaligned: "bg-srcOnly",
   tgt_only_unaligned: "bg-tgtOnly",
   empty: "bg-neutral-400",
+};
+
+const TYPE_LABEL_TONE: Record<ChunkedSegment["type"], string> = {
+  aligned: "tone-text-aligned",
+  src_only_unaligned: "tone-text-src",
+  tgt_only_unaligned: "tone-text-tgt",
+  empty: "text-neutral-500",
 };
 
 function chunkKey(side: Side, absIndex: number): string {
@@ -73,6 +85,7 @@ export function AlignmentEditor({
   actions,
   editingKey,
   onRequestEdit,
+  sourceTranslations,
 }: AlignmentEditorProps) {
   const selectedKey = selection ? chunkKey(selection.side, selection.index) : null;
 
@@ -123,6 +136,7 @@ export function AlignmentEditor({
                 onCaretChange={onCaretChange}
                 editingKey={editingKey ?? null}
                 onRequestEdit={onRequestEdit}
+                sourceTranslations={sourceTranslations}
               />
               {boundary && (
                 <BoundaryDivider
@@ -153,6 +167,7 @@ interface SegmentBlockProps {
   onCaretChange: (caret: number) => void;
   editingKey: string | null;
   onRequestEdit?: (key: string | null) => void;
+  sourceTranslations?: string[] | null;
 }
 
 function SegmentBlock({
@@ -169,15 +184,21 @@ function SegmentBlock({
   onCaretChange,
   editingKey,
   onRequestEdit,
+  sourceTranslations,
 }: SegmentBlockProps) {
   const srcChars = seg.src.reduce((n, c) => n + c.length, 0);
   const tgtChars = seg.tgt.reduce((n, c) => n + c.length, 0);
+  const translations = sourceTranslations
+    ? seg.src.map((_, i) => sourceTranslations[seg.src_range[0] + i] ?? "")
+    : null;
   return (
-    <article className={`rounded-lg ring-1 p-3 ${TYPE_TONE[seg.type]}`}>
+    <article className={`rounded-lg p-3 ${TYPE_TONE[seg.type]}`}>
       <header className="mb-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs font-medium text-neutral-700">
         <span className="flex items-center gap-2">
           <span className={`h-1.5 w-1.5 rounded-full ${TYPE_DOT[seg.type]}`} />
-          segment {segIdx + 1} <span className="text-neutral-400">·</span> {TYPE_LABEL[seg.type]}
+          segment {segIdx + 1}{" "}
+          <span className="text-neutral-400">·</span>{" "}
+          <span className={`font-semibold ${TYPE_LABEL_TONE[seg.type]}`}>{TYPE_LABEL[seg.type]}</span>
         </span>
         <span className="text-neutral-500">
           source <span className="font-mono text-ink">{formatChunkRange(seg.src_range, nSrc)}</span>
@@ -188,7 +209,7 @@ function SegmentBlock({
         </span>
       </header>
 
-      <div className="grid gap-3 lg:grid-cols-2">
+      <div className={`grid gap-3 ${translations ? "lg:grid-cols-[minmax(0,1fr)_minmax(16rem,0.85fr)_minmax(0,1fr)]" : "lg:grid-cols-2"}`}>
         <ChunkList
           accent="src"
           chunks={seg.src}
@@ -203,6 +224,12 @@ function SegmentBlock({
           editingKey={editingKey}
           onRequestEdit={onRequestEdit}
         />
+        {translations && (
+          <TranslationList
+            translations={translations}
+            baseAbsIndex={seg.src_range[0]}
+          />
+        )}
         <ChunkList
           accent="tgt"
           chunks={seg.tgt}
@@ -219,6 +246,40 @@ function SegmentBlock({
         />
       </div>
     </article>
+  );
+}
+
+function TranslationList({
+  translations,
+  baseAbsIndex,
+}: {
+  translations: string[];
+  baseAbsIndex: number;
+}) {
+  if (translations.length === 0) {
+    return (
+      <p className="flex h-full items-center justify-center px-3 py-2 text-xs italic text-neutral-400">
+        — no source text
+      </p>
+    );
+  }
+  return (
+    <ol className="flex flex-col gap-2">
+      {translations.map((text, i) => (
+        <li
+          key={`mt:${baseAbsIndex + i}`}
+          className="rounded-md border border-neutral-200 bg-brand-subtle/60 px-3 py-2"
+        >
+          <div className="mb-1 flex items-baseline gap-1.5">
+            <span className="font-mono text-2xs font-semibold text-neutral-500">MT [|{baseAbsIndex + i + 1}|]</span>
+            <span className="font-mono text-2xs text-neutral-400">{text.length}ch</span>
+          </div>
+          <p className="whitespace-pre-wrap font-serif text-sm leading-relaxed text-ink">
+            {text || "Translation unavailable."}
+          </p>
+        </li>
+      ))}
+    </ol>
   );
 }
 
@@ -321,7 +382,7 @@ function BoundaryDivider({ boundary, onRemove, onBump }: BoundaryDividerProps) {
   return (
     <div className="my-2 flex items-center gap-2 px-1">
       <span className="h-px flex-1 bg-neutral-300" />
-      <div className="flex items-center gap-1 rounded-full border border-neutral-300 bg-white px-2 py-0.5 text-2xs shadow-sm">
+      <div className="flex items-center gap-1 rounded-full border border-neutral-300 bg-surface px-2 py-0.5 text-2xs shadow-sm">
         <span className="font-medium text-neutral-500">boundary</span>
         <BumpGroup label="src" value={boundary[0]} onBump={(d) => onBump("src", d)} accent="srcOnly" />
         <BumpGroup label="tgt" value={boundary[1]} onBump={(d) => onBump("tgt", d)} accent="tgtOnly" />
@@ -359,7 +420,7 @@ function BumpGroup({
       <button
         type="button"
         onClick={() => onBump(-1)}
-        className="rounded px-1 text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900"
+        className="rounded px-1 text-neutral-500 hover:text-ink hover-fade"
         title={`move ${label} boundary one chunk earlier`}
         aria-label={`decrease ${label} boundary`}
       >
@@ -369,7 +430,7 @@ function BumpGroup({
       <button
         type="button"
         onClick={() => onBump(1)}
-        className="rounded px-1 text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900"
+        className="rounded px-1 text-neutral-500 hover:text-ink hover-fade"
         title={`move ${label} boundary one chunk later`}
         aria-label={`increase ${label} boundary`}
       >
