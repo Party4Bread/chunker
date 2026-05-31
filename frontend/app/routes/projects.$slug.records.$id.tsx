@@ -38,6 +38,17 @@ import type { RecordOut, RecordSummary, TranslateSourceOut } from "~/lib/types";
 
 const EMPTY_STATE: AlignmentState = { srcChunks: [], tgtChunks: [], pairs: [] };
 
+function sameAlignmentState(a: AlignmentState, b: AlignmentState): boolean {
+  return (
+    a.srcChunks.length === b.srcChunks.length &&
+    a.tgtChunks.length === b.tgtChunks.length &&
+    a.pairs.length === b.pairs.length &&
+    a.srcChunks.every((chunk, i) => chunk === b.srcChunks[i]) &&
+    a.tgtChunks.every((chunk, i) => chunk === b.tgtChunks[i]) &&
+    a.pairs.every((pair, i) => pair[0] === b.pairs[i]?.[0] && pair[1] === b.pairs[i]?.[1])
+  );
+}
+
 export default function RecordEditor() {
   const { slug = "", id = "0" } = useParams();
   const recordId = Number(id);
@@ -69,6 +80,7 @@ export default function RecordEditor() {
   const [segmentIdx, setSegmentIdx] = useState(0);
   const [showTranslations, setShowTranslations] = useState(false);
   const [sourceTranslation, setSourceTranslation] = useState<TranslateSourceOut | null>(null);
+  const dirtyVersionRef = useRef(0);
 
   // Reset history + selection whenever the server gives us a different record.
   useEffect(() => {
@@ -98,6 +110,8 @@ export default function RecordEditor() {
   // without being re-created on every state change. This makes `actions` stable.
   const stateRef = useRef(state);
   stateRef.current = state;
+  const metaRef = useRef(meta);
+  metaRef.current = meta;
 
   // Keep selection valid as the underlying chunks change.
   useEffect(() => {
@@ -136,14 +150,18 @@ export default function RecordEditor() {
   // every chunk card therefore sees the same `actions` object and doesn't
   // re-render on every keystroke.
   const historySet = history.set;
+  const markDirty = useCallback(() => {
+    dirtyVersionRef.current += 1;
+    setDirty(true);
+  }, []);
   const applyMutation = useCallback(
     (next: AlignmentState | null) => {
       if (next === null) return;
       const commit = !isOnlyTextEdit(stateRef.current, next);
       historySet(next, { commit });
-      setDirty(true);
+      markDirty();
     },
-    [historySet],
+    [historySet, markDirty],
   );
 
   const actions = useMemo<AlignmentEditorActions>(
@@ -172,28 +190,61 @@ export default function RecordEditor() {
   );
 
   // ── Server mutations ────────────────────────────────────────────
+  type SaveSnapshot = {
+    version: number;
+    state: AlignmentState;
+    title: string | null;
+    notes: string | null;
+  };
+
+  const toAlignmentState = useCallback(
+    (record: RecordOut): AlignmentState => ({
+      srcChunks: record.src_chunks,
+      tgtChunks: record.tgt_chunks,
+      pairs: record.gt_pairs as Pair[],
+    }),
+    [],
+  );
+
   const saveMut = useMutation({
-    mutationFn: () => {
-      if (!meta) throw new Error("nothing to save");
-      return api.patchRecord(slug, recordId, {
-        src_chunks: state.srcChunks,
-        tgt_chunks: state.tgtChunks,
-        gt_pairs: state.pairs,
-        notes: meta.notes,
-        title: meta.title,
-      });
-    },
-    onSuccess: (data) => {
-      setMeta(data);
-      setDirty(false);
+    mutationFn: (snapshot: SaveSnapshot) =>
+      api.patchRecord(slug, recordId, {
+        src_chunks: snapshot.state.srcChunks,
+        tgt_chunks: snapshot.state.tgtChunks,
+        gt_pairs: snapshot.state.pairs,
+        notes: snapshot.notes,
+        title: snapshot.title,
+      }),
+    onSuccess: (data, snapshot) => {
+      qc.setQueryData(["record", slug, recordId], data);
       qc.invalidateQueries({ queryKey: ["records", slug] });
+      if (dirtyVersionRef.current === snapshot.version) {
+        const savedState = toAlignmentState(data);
+        setMeta(data);
+        if (!sameAlignmentState(snapshot.state, savedState)) {
+          historySet(savedState, { commit: false });
+        }
+        setDirty(false);
+      }
     },
   });
+
+  const saveNow = useCallback(() => {
+    const currentMeta = metaRef.current;
+    if (!currentMeta || saveMut.isPending) return;
+    saveMut.mutate({
+      version: dirtyVersionRef.current,
+      state: stateRef.current,
+      title: currentMeta.title,
+      notes: currentMeta.notes,
+    });
+  }, [saveMut.isPending, saveMut.mutate]);
 
   const reviewMut = useMutation({
     mutationFn: (status: "draft" | "reviewed") => api.patchRecord(slug, recordId, { status }),
     onSuccess: (data) => {
       setMeta(data);
+      qc.setQueryData(["record", slug, recordId], data);
       qc.invalidateQueries({ queryKey: ["records", slug] });
     },
   });
@@ -248,8 +299,8 @@ export default function RecordEditor() {
     );
     setMeta((m) => (m ? { ...m, model_pairs: proposal.pairs as unknown as RecordOut["model_pairs"], model_response: proposal.response } : m));
     setProposal(null);
-    setDirty(true);
-  }, [proposal, history, state.srcChunks, state.tgtChunks]);
+    markDirty();
+  }, [proposal, history, state.srcChunks, state.tgtChunks, markDirty]);
 
   const discardProposal = useCallback(() => setProposal(null), []);
 
@@ -317,19 +368,16 @@ export default function RecordEditor() {
 
   // Debounced autosave: 2s after the last edit, fire a PATCH.
   // No-op if the save is already in flight or there's nothing dirty.
-  const saveMutRef = useRef(saveMut);
-  saveMutRef.current = saveMut;
   useEffect(() => {
     if (!dirty) return;
     const t = window.setTimeout(() => {
-      const sm = saveMutRef.current;
-      if (sm.isPending) return;
-      sm.mutate();
+      if (saveMut.isPending) return;
+      saveNow();
     }, 2000);
     return () => window.clearTimeout(t);
     // Re-fire when state.pairs / chunks shapes change (a structural commit).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dirty, state.pairs, state.srcChunks, state.tgtChunks, meta?.notes, meta?.title]);
+  }, [dirty, state.pairs, state.srcChunks, state.tgtChunks, meta?.notes, meta?.title, saveNow, saveMut.isPending]);
 
   // ── Hotkeys ─────────────────────────────────────────────────────
   const selRef = useRef(selection);
@@ -400,7 +448,7 @@ export default function RecordEditor() {
     "?": () => setHelpOpen((o) => !o),
     "shift+?": () => setHelpOpen((o) => !o),
     "mod+s": () => {
-      if (dirty && !saveMut.isPending) saveMut.mutate();
+      if (dirty && !saveMut.isPending) saveNow();
     },
     "mod+z": () => history.undo(),
     "mod+shift+z": () => history.redo(),
@@ -494,7 +542,7 @@ export default function RecordEditor() {
               type="button"
               className="btn-primary hidden lg:inline-flex"
               disabled={!dirty || saveMut.isPending}
-              onClick={() => saveMut.mutate()}
+              onClick={saveNow}
               title={`save (${modLabel()}+s)`}
               aria-live="polite"
             >
@@ -540,7 +588,7 @@ export default function RecordEditor() {
           placeholder="untitled"
           onChange={(e) => {
             setMeta({ ...meta, title: e.target.value });
-            setDirty(true);
+            markDirty();
           }}
         />
 
@@ -632,7 +680,7 @@ export default function RecordEditor() {
             placeholder="anything worth remembering about this record…"
             onChange={(e) => {
               setMeta({ ...meta, notes: e.target.value });
-              setDirty(true);
+              markDirty();
             }}
           />
         </label>
@@ -644,7 +692,7 @@ export default function RecordEditor() {
         onSegmentNext={() => onSegmentChange(Math.min(segments.length - 1, segmentIdx + 1))}
         onUndo={() => history.undo()}
         canUndo={history.canUndo}
-        onSave={() => saveMut.mutate()}
+        onSave={saveNow}
         saving={saveMut.isPending}
         dirty={dirty}
         onReviewAndNext={markReviewedAndAdvance}
