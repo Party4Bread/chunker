@@ -7,6 +7,7 @@ from pathlib import Path
 
 from chunker_core.llm import VllmClient, VllmClientConfig, predict_pairs
 from chunker_core.parsing import build_chunked_sets, normalize_raw_pairs, prune_empty_chunks
+from chunker_core.translation import translate_source_chunks
 
 from ..config import Settings, get_settings
 
@@ -46,6 +47,27 @@ def run_inference(src_chunks: list[str], tgt_chunks: list[str]) -> dict:
     result["src_chunks"] = src_pruned
     result["tgt_chunks"] = tgt_pruned
     return result
+
+
+def run_source_translation(
+    src_chunks: list[str],
+    tgt_chunks: list[str],
+    target_language: str | None = None,
+) -> dict:
+    """Translate source chunks into the target-side language for review display."""
+    settings = get_settings()
+    client = VllmClient(
+        VllmClientConfig(
+            base_url=settings.vllm_base_url,
+            model=settings.vllm_model,
+            max_tokens=max(settings.max_tokens, 1024),
+            timeout_seconds=settings.request_timeout_seconds,
+            max_model_len=settings.vllm_max_model_len,
+            context_safety_margin=settings.context_safety_margin,
+            min_output_tokens=settings.min_output_tokens,
+        )
+    )
+    return translate_source_chunks(client, src_chunks, tgt_chunks, target_language)
 
 
 def split_files(src_text: str, tgt_text: str) -> tuple[list[str], list[str]]:

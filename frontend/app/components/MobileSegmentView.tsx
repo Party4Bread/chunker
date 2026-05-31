@@ -23,6 +23,7 @@ interface MobileSegmentViewProps {
   actions: AlignmentEditorActions;
   editingKey?: string | null;
   onRequestEdit?: (key: string | null) => void;
+  sourceTranslations?: string[] | null;
 }
 
 const TYPE_LABEL: Record<ChunkedSegment["type"], string> = {
@@ -33,10 +34,17 @@ const TYPE_LABEL: Record<ChunkedSegment["type"], string> = {
 };
 
 const TYPE_TONE: Record<ChunkedSegment["type"], string> = {
-  aligned: "bg-aligned/[0.04] ring-aligned/30",
-  src_only_unaligned: "bg-srcOnly/[0.06] ring-srcOnly/30",
-  tgt_only_unaligned: "bg-tgtOnly/[0.05] ring-tgtOnly/30",
-  empty: "bg-neutral-100 ring-neutral-300",
+  aligned: "tone-aligned",
+  src_only_unaligned: "tone-src-only",
+  tgt_only_unaligned: "tone-tgt-only",
+  empty: "tone-empty",
+};
+
+const TYPE_LABEL_TONE: Record<ChunkedSegment["type"], string> = {
+  aligned: "tone-text-aligned",
+  src_only_unaligned: "tone-text-src",
+  tgt_only_unaligned: "tone-text-tgt",
+  empty: "text-neutral-500",
 };
 
 const TYPE_DOT: Record<ChunkedSegment["type"], string> = {
@@ -63,12 +71,16 @@ export function MobileSegmentView({
   actions,
   editingKey,
   onRequestEdit,
+  sourceTranslations,
 }: MobileSegmentViewProps) {
   const total = segments.length;
   const safeIdx = Math.min(Math.max(0, segmentIdx), Math.max(0, total - 1));
   const seg = segments[safeIdx];
   const trailingBoundary = safeIdx < total - 1 ? validPairs[safeIdx] : null;
   const selectedKey = selection ? chunkKey(selection.side, selection.index) : null;
+  const translations = sourceTranslations
+    ? seg?.src.map((_, i) => sourceTranslations[seg.src_range[0] + i] ?? "")
+    : null;
 
   // Swipe handling.
   // Ignore swipes that start inside any interactive surface — textareas, inputs,
@@ -118,11 +130,11 @@ export function MobileSegmentView({
         onNext={() => safeIdx < total - 1 && onSegmentChange(safeIdx + 1)}
       />
 
-      <article className={`rounded-lg ring-1 p-3 ${TYPE_TONE[seg.type]}`}>
+      <article className={`rounded-lg p-3 ${TYPE_TONE[seg.type]}`}>
         <header className="mb-3 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 text-xs font-medium text-neutral-700">
           <span className="flex items-center gap-2">
             <span className={`h-1.5 w-1.5 rounded-full ${TYPE_DOT[seg.type]}`} />
-            {TYPE_LABEL[seg.type]}
+            <span className={`font-semibold ${TYPE_LABEL_TONE[seg.type]}`}>{TYPE_LABEL[seg.type]}</span>
           </span>
           <span className="text-2xs text-neutral-500">
             source <span className="font-mono text-ink">{formatChunkRange(seg.src_range, state.srcChunks.length)}</span>
@@ -148,6 +160,12 @@ export function MobileSegmentView({
           editingKey={editingKey ?? null}
           onRequestEdit={onRequestEdit}
         />
+
+        {translations && (
+          <>
+            <TranslationPanel translations={translations} baseAbsIndex={seg.src_range[0]} />
+          </>
+        )}
 
         <SideHeader side="tgt" extraTopMargin />
         <ChunkColumn
@@ -177,9 +195,43 @@ export function MobileSegmentView({
   );
 }
 
+function TranslationPanel({
+  translations,
+  baseAbsIndex,
+}: {
+  translations: string[];
+  baseAbsIndex: number;
+}) {
+  return (
+    <div className="mt-3 space-y-2">
+      <div className="eyebrow">source translation</div>
+      {translations.length === 0 ? (
+        <p className="px-2 py-2 text-xs italic text-neutral-400">— no source text</p>
+      ) : (
+        <ol className="space-y-2">
+          {translations.map((text, i) => (
+            <li
+              key={`mobile-mt:${baseAbsIndex + i}`}
+              className="rounded-md border border-neutral-200 bg-brand-subtle/60 px-3 py-2"
+            >
+              <div className="mb-1 flex items-baseline gap-1.5">
+                <span className="font-mono text-2xs font-semibold text-neutral-500">MT [|{baseAbsIndex + i + 1}|]</span>
+                <span className="font-mono text-2xs text-neutral-400">{text.length}ch</span>
+              </div>
+              <p className="whitespace-pre-wrap font-serif text-sm leading-relaxed text-ink">
+                {text || "Translation unavailable."}
+              </p>
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
+  );
+}
+
 function SegmentCounter({ idx, total, onPrev, onNext }: { idx: number; total: number; onPrev: () => void; onNext: () => void }) {
   return (
-    <div className="flex items-center justify-between rounded-md bg-white px-3 py-2 ring-1 ring-neutral-200">
+    <div className="flex items-center justify-between rounded-md bg-surface px-3 py-2 ring-1 ring-neutral-200">
       <button
         type="button"
         className="btn !min-h-[40px] !min-w-[40px] !px-2 text-sm"
@@ -311,7 +363,7 @@ interface BoundaryDividerProps {
 
 function BoundaryDivider({ boundary, onRemove, onBump }: BoundaryDividerProps) {
   return (
-    <div className="rounded-lg border border-neutral-300 bg-white p-3 shadow-sm">
+    <div className="rounded-lg border border-neutral-300 bg-surface p-3 shadow-sm">
       <div className="mb-2 flex items-center justify-between">
         <span className="eyebrow">boundary</span>
         <button
@@ -353,7 +405,7 @@ function BumpRow({
         <button
           type="button"
           onClick={() => onBump(-1)}
-          className="inline-flex h-9 w-9 items-center justify-center rounded text-neutral-600 hover:bg-neutral-100 active:bg-neutral-200"
+          className="inline-flex h-9 w-9 items-center justify-center rounded text-neutral-600 hover-fade"
           aria-label={`decrease ${label}`}
         >
           ◀
@@ -362,7 +414,7 @@ function BumpRow({
         <button
           type="button"
           onClick={() => onBump(1)}
-          className="inline-flex h-9 w-9 items-center justify-center rounded text-neutral-600 hover:bg-neutral-100 active:bg-neutral-200"
+          className="inline-flex h-9 w-9 items-center justify-center rounded text-neutral-600 hover-fade"
           aria-label={`increase ${label}`}
         >
           ▶

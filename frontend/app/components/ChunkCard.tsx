@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import type { Side } from "~/lib/alignment";
 
 interface ChunkCardProps {
@@ -56,6 +56,12 @@ export function ChunkCard({
   const gutter = accent === "src" ? "gutter-src" : "gutter-tgt";
   const ring = selected ? "ring-2 ring-offset-1 ring-ink" : "";
   const iconSize = variant === "mobile" ? "h-9 w-9 text-base" : "h-7 w-7 text-sm";
+  const resizeTextarea = useCallback(() => {
+    const ta = taRef.current;
+    if (!ta) return;
+    ta.style.height = "auto";
+    ta.style.height = `${ta.scrollHeight}px`;
+  }, []);
 
   useEffect(() => {
     if (selected && ref.current) {
@@ -68,23 +74,31 @@ export function ChunkCard({
       taRef.current.focus();
       const c = caretFromState ?? text.length;
       taRef.current.setSelectionRange(c, c);
+      resizeTextarea();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editing]);
 
   // Auto-grow the textarea to fit content so the chunk card never scrolls.
-  // Uses scrollHeight measurement, which works correctly for CJK and any line length.
+  // Re-measure on width changes too: wrapping changes scrollHeight even when
+  // text is unchanged, which made editors clip or become hard to focus after
+  // resizing across layouts.
   useLayoutEffect(() => {
+    resizeTextarea();
+  }, [resizeTextarea, text]);
+
+  useEffect(() => {
     const ta = taRef.current;
-    if (!ta) return;
-    ta.style.height = "auto";
-    ta.style.height = `${ta.scrollHeight}px`;
-  }, [text]);
+    if (!ta || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => resizeTextarea());
+    ro.observe(ta);
+    return () => ro.disconnect();
+  }, [resizeTextarea]);
 
   return (
     <div
       ref={ref}
-      className={`rounded-md border border-neutral-200 bg-white pl-3 pr-2.5 py-2 transition ${gutter} hover:border-neutral-300 ${ring}`}
+      className={`rounded-md border border-neutral-200 bg-surface pl-3 pr-2.5 py-2 transition ${gutter} hover:border-neutral-300 ${ring}`}
     >
       <div className="mb-1 flex items-center justify-between gap-2">
         <span className="flex items-baseline gap-1.5">
@@ -159,10 +173,12 @@ export function ChunkCard({
       <textarea
         ref={taRef}
         aria-label={`${accent === "src" ? "source" : "target"} chunk ${displayIndex}`}
-        className="w-full resize-none overflow-hidden rounded border border-transparent bg-transparent px-1 py-0.5 -mx-1 font-serif text-base leading-relaxed text-ink focus-visible:border-neutral-300 focus-visible:bg-neutral-50 focus:outline-none"
+        className="min-h-[2.25rem] w-full resize-none overflow-hidden rounded border border-transparent bg-transparent px-1 py-0.5 -mx-1 font-serif text-base leading-relaxed text-ink focus-visible:border-neutral-300 focus-visible:bg-neutral-100 focus:outline-none"
         rows={1}
         value={text}
         onChange={(e) => {
+          e.currentTarget.style.height = "auto";
+          e.currentTarget.style.height = `${e.currentTarget.scrollHeight}px`;
           onEdit(e.target.value);
           onCaretChange(e.target.selectionStart ?? 0);
         }}
@@ -193,7 +209,7 @@ function IconBtn({
   const tone =
     variant === "danger"
       ? "text-red-600 hover:bg-red-50 active:bg-red-100"
-      : "text-neutral-500 hover:bg-neutral-100 hover:text-ink active:bg-neutral-200";
+      : "text-neutral-500 hover:text-ink hover-fade";
   return (
     <button
       type="button"

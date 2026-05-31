@@ -34,7 +34,7 @@ import {
 import { api } from "~/lib/api";
 import { useHistory } from "~/lib/useHistory";
 import { useHotkeys, modLabel } from "~/lib/useHotkeys";
-import type { RecordOut, RecordSummary } from "~/lib/types";
+import type { RecordOut, RecordSummary, TranslateSourceOut } from "~/lib/types";
 
 const EMPTY_STATE: AlignmentState = { srcChunks: [], tgtChunks: [], pairs: [] };
 
@@ -67,6 +67,8 @@ export default function RecordEditor() {
   const [helpOpen, setHelpOpen] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [segmentIdx, setSegmentIdx] = useState(0);
+  const [showTranslations, setShowTranslations] = useState(false);
+  const [sourceTranslation, setSourceTranslation] = useState<TranslateSourceOut | null>(null);
 
   // Reset history + selection whenever the server gives us a different record.
   useEffect(() => {
@@ -81,6 +83,8 @@ export default function RecordEditor() {
     setEditingKey(null);
     setDirty(false);
     setSegmentIdx(0);
+    setShowTranslations(false);
+    setSourceTranslation(null);
   }, [recordQ.data?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const state = history.state;
@@ -225,6 +229,14 @@ export default function RecordEditor() {
         response: out.response,
         parseError: out.parse_error,
       });
+    },
+  });
+
+  const translateMut = useMutation({
+    mutationFn: () => api.translateSource(slug, recordId),
+    onSuccess: (out) => {
+      setSourceTranslation(out);
+      setShowTranslations(true);
     },
   });
 
@@ -413,7 +425,12 @@ export default function RecordEditor() {
     );
   }
 
-  const errorBanner = saveMut.isError || reinferMut.isError || reinferBelowMut.isError || reviewMut.isError;
+  const errorBanner =
+    saveMut.isError ||
+    reinferMut.isError ||
+    reinferBelowMut.isError ||
+    reviewMut.isError ||
+    translateMut.isError;
   const queuePosition = currentIdx >= 0 ? `${currentIdx + 1} / ${ordered.length}` : `· / ${ordered.length}`;
   const canReinferBelow = segmentIdx >= 0 && segmentIdx < segments.length - 1;
 
@@ -512,12 +529,13 @@ export default function RecordEditor() {
             {(saveMut.error as Error)?.message ||
               (reinferMut.error as Error)?.message ||
               (reinferBelowMut.error as Error)?.message ||
-              (reviewMut.error as Error)?.message}
+              (reviewMut.error as Error)?.message ||
+              (translateMut.error as Error)?.message}
           </div>
         )}
 
         <input
-          className="w-full rounded-md border border-neutral-200 bg-white px-3 py-2 text-base font-semibold text-ink focus-visible:border-ink focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ink/30 focus:outline-none"
+          className="w-full rounded-md border border-neutral-200 bg-surface px-3 py-2 text-base font-semibold text-ink focus-visible:border-ink focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ink/30 focus:outline-none"
           value={meta.title ?? ""}
           placeholder="untitled"
           onChange={(e) => {
@@ -535,6 +553,32 @@ export default function RecordEditor() {
           onDiscard={discardProposal}
         />
 
+        <div className="flex flex-wrap items-center gap-2 rounded-md border border-neutral-200 bg-surface px-3 py-2">
+          <div className="flex rounded-md border border-neutral-200 p-0.5">
+            <button
+              type="button"
+              className={`rounded px-3 py-1.5 text-xs font-medium ${!showTranslations ? "bg-ink text-brand-fg" : "text-neutral-600 hover-fade"}`}
+              onClick={() => setShowTranslations(false)}
+            >
+              original
+            </button>
+            <button
+              type="button"
+              className={`rounded px-3 py-1.5 text-xs font-medium ${showTranslations ? "bg-ink text-brand-fg" : "text-neutral-600 hover-fade"}`}
+              onClick={() => {
+                if (!sourceTranslation) translateMut.mutate();
+                else setShowTranslations(true);
+              }}
+              disabled={translateMut.isPending}
+            >
+              {translateMut.isPending ? "translating…" : "source MT"}
+            </button>
+          </div>
+          {showTranslations && sourceTranslation?.parse_error && (
+            <span className="text-xs text-red-600">Translation loaded, but the model response needed fallback parsing.</span>
+          )}
+        </div>
+
         <div className="hidden lg:block">
           <AlignmentEditor
             state={state}
@@ -547,6 +591,7 @@ export default function RecordEditor() {
             actions={actions}
             editingKey={editingKey}
             onRequestEdit={setEditingKey}
+            sourceTranslations={showTranslations ? sourceTranslation?.translations ?? null : null}
           />
         </div>
         <div className="lg:hidden">
@@ -563,11 +608,12 @@ export default function RecordEditor() {
             actions={actions}
             editingKey={editingKey}
             onRequestEdit={setEditingKey}
+            sourceTranslations={showTranslations ? sourceTranslation?.translations ?? null : null}
           />
         </div>
 
         {meta.model_response && (
-          <details className="rounded-lg border border-neutral-200 bg-white p-3">
+          <details className="rounded-lg border border-neutral-200 bg-surface p-3">
             <summary className="cursor-pointer text-xs font-medium text-neutral-600 hover:text-ink">
               raw model output
             </summary>
@@ -580,7 +626,7 @@ export default function RecordEditor() {
         <label className="block">
           <span className="eyebrow text-neutral-700">notes</span>
           <textarea
-            className="mt-1 w-full rounded-md border border-neutral-200 bg-white px-3 py-2 text-sm focus-visible:border-ink focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ink/30 focus:outline-none"
+            className="mt-1 w-full rounded-md border border-neutral-200 bg-surface px-3 py-2 text-sm focus-visible:border-ink focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ink/30 focus:outline-none"
             rows={2}
             value={meta.notes ?? ""}
             placeholder="anything worth remembering about this record…"

@@ -9,8 +9,8 @@ from chunker_core.parsing import build_chunked_sets, monotonic_sort_pairs, prune
 
 from ..db import project_session, registry_session
 from ..models import ProjectMeta, Record
-from ..schemas import ChunkedSegment, InferOut, InferRequest
-from ..services.pipeline import run_inference
+from ..schemas import ChunkedSegment, InferOut, InferRequest, TranslateSourceOut, TranslateSourceRequest
+from ..services.pipeline import run_inference, run_source_translation
 
 router = APIRouter(prefix="/api/projects/{slug}/records", tags=["infer"])
 
@@ -98,5 +98,35 @@ def reinfer(
         response=result["response"],
         pairs=cleaned,
         chunked_sets=[ChunkedSegment(**seg) for seg in chunked],
+        parse_error=bool(result["parse_error"]),
+    )
+
+
+@router.post("/{record_id}/translate-source", response_model=TranslateSourceOut)
+def translate_source(
+    slug: str,
+    record_id: int,
+    payload: TranslateSourceRequest = TranslateSourceRequest(),
+    registry: Session = Depends(_registry_db),
+    db: Session = Depends(_project_db),
+) -> TranslateSourceOut:
+    if registry.get(ProjectMeta, slug) is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    record = db.get(Record, record_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="record not found")
+
+    src, tgt, _ = prune_empty_chunks(record.src_chunks or [], record.tgt_chunks or [])
+    if not src:
+        raise HTTPException(status_code=400, detail="record has no source chunks")
+
+    try:
+        result = run_source_translation(src, tgt, payload.target_language)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"translation failed: {exc!s}") from exc
+
+    return TranslateSourceOut(
+        translations=[str(item) for item in result["translations"]],
+        response=str(result["response"]),
         parse_error=bool(result["parse_error"]),
     )
