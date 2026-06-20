@@ -54,20 +54,12 @@ def run_source_translation(
     tgt_chunks: list[str],
     target_language: str | None = None,
 ) -> dict:
-    """Translate source chunks into the target-side language for review display."""
-    settings = get_settings()
-    client = VllmClient(
-        VllmClientConfig(
-            base_url=settings.vllm_base_url,
-            model=settings.vllm_model,
-            max_tokens=max(settings.max_tokens, 1024),
-            timeout_seconds=settings.request_timeout_seconds,
-            max_model_len=settings.vllm_max_model_len,
-            context_safety_margin=settings.context_safety_margin,
-            min_output_tokens=settings.min_output_tokens,
-        )
-    )
-    return translate_source_chunks(client, src_chunks, tgt_chunks, target_language)
+    """Translate source chunks into the target-side language for review display.
+
+    Uses Google Translate (googletrans) rather than the chunking model, so the
+    MT quality and language coverage don't depend on the local vLLM deployment.
+    """
+    return translate_source_chunks(src_chunks, tgt_chunks, target_language)
 
 
 def split_files(src_text: str, tgt_text: str) -> tuple[list[str], list[str]]:

@@ -1,95 +1,155 @@
-"""Source-chunk machine-translation helpers."""
+"""Source-chunk machine-translation helpers backed by Google Translate (googletrans).
+
+The source chunks shown in the alignment-review UI are translated on demand with
+``googletrans`` (the free Google Translate web API). Translation is done per chunk
+so the returned list stays index-aligned with the source chunks, which is what the
+editor relies on to render the MT column next to each chunk.
+"""
 
 from __future__ import annotations
 
-import json
-import re
-from typing import Sequence
+import asyncio
+import inspect
+from typing import Callable, Sequence
 
-from .llm import VllmClient
+# Translates a batch of texts into ``dest`` and returns one string per input,
+# in order. Injectable so the pipeline/tests can swap in a fake backend.
+TranslateBatch = Callable[[Sequence[str], str], "list[str]"]
+DetectLanguage = Callable[[str], "str | None"]
 
-
-_FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL | re.IGNORECASE)
-_NUMBERED_RE = re.compile(r"^\s*(?:(\d+)[.)-]|\[?\|?(\d+)\|?\]?)\s*(.*\S)\s*$")
-
-
-def build_translation_prompt(
-    src_chunks: Sequence[str],
-    tgt_context: Sequence[str] = (),
-    target_language: str | None = None,
-) -> str:
-    target = target_language.strip() if target_language else "the language used by the target reference"
-    numbered_src = "\n".join(f"{i}. {chunk}" for i, chunk in enumerate(src_chunks, start=1))
-    context = "\n".join(f"- {chunk}" for chunk in tgt_context[:8])
-    context_block = f"\nTarget reference snippets:\n{context}\n" if context else ""
-    return (
-        "Translate each source chunk for a bilingual alignment-review UI.\n"
-        f"Target language: {target}.\n"
-        "Preserve meaning, names, numbers, and formatting cues. Do not merge, split, summarize, or omit chunks.\n"
-        "Return only a JSON array of strings, with exactly one translated string per source chunk, in order.\n"
-        f"{context_block}\nSource chunks:\n{numbered_src}"
-    )
+DEFAULT_DEST = "en"
 
 
-def parse_translation_response(response: str, expected_count: int) -> tuple[list[str], bool]:
-    """Parse model output into exactly ``expected_count`` translations.
+def normalize_language(value: str | None) -> str | None:
+    """Normalize a user-supplied language hint into a googletrans ``dest`` code.
 
-    Returns ``(translations, parse_error)``. The fallback numbered-line parser is
-    deliberately conservative: if the model did not clearly preserve one line per
-    chunk, the caller gets empty placeholders plus ``parse_error=True``.
+    googletrans accepts both ISO codes (``ko``) and language names (``korean``);
+    we only lowercase/trim and let the library resolve the rest.
     """
-    candidates = [response]
-    candidates.extend(match.group(1) for match in _FENCE_RE.finditer(response))
-    start = response.find("[")
-    end = response.rfind("]")
-    if start >= 0 and end > start:
-        candidates.append(response[start : end + 1])
+    if not value:
+        return None
+    code = value.strip().lower().replace("_", "-")
+    return code or None
 
-    for candidate in candidates:
+
+def _run(value):
+    """Resolve a value that may be a coroutine (googletrans 4.x is async)."""
+    if inspect.isawaitable(value):
+        return asyncio.run(value)
+    return value
+
+
+def _google_translate_batch(texts: Sequence[str], dest: str) -> list[str]:
+    from googletrans import Translator
+
+    translator = Translator()
+    is_async = inspect.iscoroutinefunction(translator.translate)
+    if is_async:
+        return _run(_translate_all_async(translator, texts, dest))
+
+    out: list[str] = []
+    for text in texts:
+        if not text.strip():
+            out.append("")
+            continue
+        result = translator.translate(text, dest=dest)
+        out.append(getattr(result, "text", "") or "")
+    return out
+
+
+async def _translate_all_async(translator, texts: Sequence[str], dest: str) -> list[str]:
+    out: list[str] = []
+    for text in texts:
+        if not text.strip():
+            out.append("")
+            continue
+        result = await translator.translate(text, dest=dest)
+        out.append(getattr(result, "text", "") or "")
+    return out
+
+
+def _google_detect(text: str) -> str | None:
+    from googletrans import Translator
+
+    translator = Translator()
+    if inspect.iscoroutinefunction(translator.detect):
+        result = _run(translator.detect(text))
+    else:
+        result = translator.detect(text)
+    lang = getattr(result, "lang", None)
+    if isinstance(lang, list):
+        lang = lang[0] if lang else None
+    return lang
+
+
+def resolve_dest_language(
+    target_language: str | None,
+    tgt_chunks: Sequence[str],
+    detect_language: DetectLanguage,
+) -> str:
+    """Pick the destination language for the source MT.
+
+    An explicit ``target_language`` always wins. Otherwise we detect the language
+    of the target reference so the MT matches the side the reviewer reads, falling
+    back to ``DEFAULT_DEST`` if detection is unavailable.
+    """
+    explicit = normalize_language(target_language)
+    if explicit:
+        return explicit
+
+    sample = " ".join(chunk for chunk in tgt_chunks if chunk.strip())[:500]
+    if sample:
         try:
-            data = json.loads(candidate)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(data, list) and len(data) == expected_count and all(isinstance(item, str) for item in data):
-            return [item.strip() for item in data], False
-
-    numbered: dict[int, str] = {}
-    for line in response.splitlines():
-        match = _NUMBERED_RE.match(line)
-        if not match:
-            continue
-        raw_idx = match.group(1) or match.group(2)
-        idx = int(raw_idx) - 1
-        if 0 <= idx < expected_count:
-            numbered[idx] = match.group(3).strip()
-
-    if len(numbered) == expected_count:
-        return [numbered[i] for i in range(expected_count)], True
-    return [""] * expected_count, True
+            detected = detect_language(sample)
+        except Exception:
+            detected = None
+        normalized = normalize_language(detected)
+        if normalized:
+            return normalized
+    return DEFAULT_DEST
 
 
 def translate_source_chunks(
-    client: VllmClient,
     src_chunks: Sequence[str],
     tgt_chunks: Sequence[str] = (),
     target_language: str | None = None,
-    batch_size: int = 16,
+    *,
+    translate_batch: TranslateBatch | None = None,
+    detect_language: DetectLanguage | None = None,
 ) -> dict:
-    translations: list[str] = []
-    responses: list[str] = []
-    parse_error = False
+    """Translate source chunks for review display using Google Translate.
 
-    for start in range(0, len(src_chunks), batch_size):
-        batch = list(src_chunks[start : start + batch_size])
-        prompt = build_translation_prompt(batch, tgt_chunks, target_language)
-        response = client.complete(prompt)
-        parsed, errored = parse_translation_response(response, len(batch))
-        translations.extend(parsed)
-        responses.append(response)
-        parse_error = parse_error or errored
+    Returns a dict with ``translations`` (one entry per source chunk, in order),
+    ``response`` (a short human-readable note about the backend used),
+    ``parse_error`` (``True`` if any chunk came back empty), and the resolved
+    ``target_language``.
+    """
+    chunks = [str(chunk) for chunk in src_chunks]
+    if not chunks:
+        return {
+            "translations": [],
+            "response": "",
+            "parse_error": False,
+            "target_language": None,
+        }
+
+    translate = translate_batch or _google_translate_batch
+    detect = detect_language or _google_detect
+    dest = resolve_dest_language(target_language, list(tgt_chunks), detect)
+
+    translations = [str(item) for item in translate(chunks, dest)]
+    # Keep the list strictly index-aligned with the source chunks even if the
+    # backend returns a different count, so the editor's MT column never drifts.
+    if len(translations) < len(chunks):
+        translations.extend([""] * (len(chunks) - len(translations)))
+    elif len(translations) > len(chunks):
+        translations = translations[: len(chunks)]
+
+    parse_error = any(not text.strip() for text in translations)
 
     return {
         "translations": translations,
-        "response": "\n\n--- batch ---\n\n".join(responses),
+        "response": f"googletrans → {dest}",
         "parse_error": parse_error,
+        "target_language": dest,
     }
