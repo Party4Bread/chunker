@@ -623,7 +623,7 @@ export default function RecordEditor() {
             </button>
           </div>
           {showTranslations && sourceTranslation?.parse_error && (
-            <span className="text-xs text-red-600">Translation loaded, but the model response needed fallback parsing.</span>
+            <span className="text-xs text-red-600">Translation loaded, but some chunks could not be translated.</span>
           )}
         </div>
 
