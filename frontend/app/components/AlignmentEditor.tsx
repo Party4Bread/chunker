@@ -274,7 +274,7 @@ function TranslationList({
             <span className="font-mono text-2xs font-semibold text-neutral-500">MT [|{baseAbsIndex + i + 1}|]</span>
             <span className="font-mono text-2xs text-neutral-400">{text.length}ch</span>
           </div>
-          <p className="whitespace-pre-wrap font-serif text-sm leading-relaxed text-ink">
+          <p className="whitespace-pre-wrap font-serif text-base leading-relaxed text-ink">
             {text || "Translation unavailable."}
           </p>
         </li>
