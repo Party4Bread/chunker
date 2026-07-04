@@ -7,6 +7,10 @@ import type { Config } from "tailwindcss";
  * - src/tgt accents (amber / blue) are STRUCTURAL — every chunk card has its side's accent on the left edge.
  * - Aligned / src-only / tgt-only segments pick up the same accent family at different chroma.
  * - All colors authored in OKLCH; chroma reduced near the lightness extremes per shared design laws.
+ *
+ * Each color references a CSS variable holding an "L C H" triplet so that
+ * styles.css can swap the entire palette for dark mode without touching any
+ * component className. <alpha-value> is Tailwind's opacity hook.
  */
 export default {
   content: ["./app/**/*.{ts,tsx}"],
@@ -49,32 +53,43 @@ export default {
     },
     extend: {
       colors: {
-        // Tinted neutral ramp, slight cool cast (hue 230) pulled toward brand.
-        // Chroma trails off near the lightness extremes.
         neutral: {
-          50: "oklch(98.5% 0.003 230 / <alpha-value>)",
-          100: "oklch(96% 0.005 230 / <alpha-value>)",
-          200: "oklch(92% 0.007 230 / <alpha-value>)",
-          300: "oklch(86% 0.009 230 / <alpha-value>)",
-          400: "oklch(70% 0.012 230 / <alpha-value>)",
-          500: "oklch(58% 0.014 230 / <alpha-value>)",
-          600: "oklch(48% 0.018 230 / <alpha-value>)",
-          700: "oklch(38% 0.020 230 / <alpha-value>)",
-          800: "oklch(28% 0.022 230 / <alpha-value>)",
-          900: "oklch(22% 0.022 230 / <alpha-value>)",
+          50: "oklch(var(--neutral-50) / <alpha-value>)",
+          100: "oklch(var(--neutral-100) / <alpha-value>)",
+          200: "oklch(var(--neutral-200) / <alpha-value>)",
+          300: "oklch(var(--neutral-300) / <alpha-value>)",
+          400: "oklch(var(--neutral-400) / <alpha-value>)",
+          500: "oklch(var(--neutral-500) / <alpha-value>)",
+          600: "oklch(var(--neutral-600) / <alpha-value>)",
+          700: "oklch(var(--neutral-700) / <alpha-value>)",
+          800: "oklch(var(--neutral-800) / <alpha-value>)",
+          900: "oklch(var(--neutral-900) / <alpha-value>)",
         },
-        ink: "oklch(22% 0.022 230 / <alpha-value>)",
+        // Tailwind's default red palette is RGB. We re-author the shades we
+        // actually use in OKLCH so they participate in the theme swap.
+        red: {
+          50: "oklch(var(--red-50) / <alpha-value>)",
+          100: "oklch(var(--red-100) / <alpha-value>)",
+          200: "oklch(var(--red-200) / <alpha-value>)",
+          300: "oklch(var(--red-300) / <alpha-value>)",
+          500: "oklch(var(--red-500) / <alpha-value>)",
+          600: "oklch(var(--red-600) / <alpha-value>)",
+          700: "oklch(var(--red-700) / <alpha-value>)",
+        },
+        ink: "oklch(var(--ink) / <alpha-value>)",
         brand: {
-          DEFAULT: "oklch(45% 0.10 230 / <alpha-value>)",
-          fg: "oklch(98.5% 0.005 230 / <alpha-value>)",
-          subtle: "oklch(94% 0.018 230 / <alpha-value>)",
+          DEFAULT: "oklch(var(--brand) / <alpha-value>)",
+          fg: "oklch(var(--brand-fg) / <alpha-value>)",
+          subtle: "oklch(var(--brand-subtle) / <alpha-value>)",
         },
+        // "surface" replaces bare bg-white — it tracks the theme.
+        surface: "oklch(var(--surface) / <alpha-value>)",
         // Source / target structural accents.
-        srcOnly: "oklch(68% 0.15 60 / <alpha-value>)",
-        tgtOnly: "oklch(62% 0.15 240 / <alpha-value>)",
+        srcOnly: "oklch(var(--src-only) / <alpha-value>)",
+        tgtOnly: "oklch(var(--tgt-only) / <alpha-value>)",
         // Segment-type tints.
-        aligned: "oklch(52% 0.13 155 / <alpha-value>)",
-        empty: "oklch(70% 0.005 230 / <alpha-value>)",
+        aligned: "oklch(var(--aligned) / <alpha-value>)",
+        empty: "oklch(var(--empty) / <alpha-value>)",
       },
       minHeight: { touch: "44px" },
       minWidth: { touch: "44px" },
@@ -82,10 +97,12 @@ export default {
         DEFAULT: "0.375rem",
       },
       boxShadow: {
-        // Tinted shadows; never pure black.
-        sm: "0 1px 2px 0 oklch(20% 0.02 230 / 0.04), 0 1px 1px 0 oklch(20% 0.02 230 / 0.03)",
-        DEFAULT: "0 2px 4px -1px oklch(20% 0.02 230 / 0.06), 0 1px 2px 0 oklch(20% 0.02 230 / 0.04)",
-        lg: "0 8px 24px -4px oklch(20% 0.02 230 / 0.10), 0 4px 8px -2px oklch(20% 0.02 230 / 0.06)",
+        // Whole shadow stack lives in CSS variables so the dark theme can swap
+        // to stronger near-black drops (lifted opacities) without us having to
+        // re-derive every alpha here — see --shadow-* in styles.css.
+        sm: "var(--shadow-sm)",
+        DEFAULT: "var(--shadow-md)",
+        lg: "var(--shadow-lg)",
       },
     },
   },

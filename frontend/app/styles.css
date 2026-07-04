@@ -3,15 +3,188 @@
 @tailwind utilities;
 
 @layer base {
-  /* Brand and accent colors as CSS variables so non-Tailwind sites
-     (.gutter-*, brand SVG strokes) reference the same source of truth. */
+  /*
+   * Design tokens, single source of truth for light and dark mode.
+   *
+   * Each token is an "L C H" triplet (OKLCH coordinates without the oklch()
+   * wrapper) so that Tailwind utilities written as `oklch(var(--token) / <alpha-value>)`
+   * can still apply opacity modifiers. The wrapped --color-* variables are kept
+   * for places that need a ready-to-use color (SVG strokes, inline styles).
+   *
+   * Dark mode swaps neutrals (50 ↔ 900 etc.), lifts brand/accents into a
+   * higher-lightness band, and flips brand-fg so `bg-ink text-brand-fg` keeps
+   * working when ink becomes a light color.
+   */
   :root {
+    --neutral-50: 98.5% 0.003 230;
+    --neutral-100: 96% 0.005 230;
+    --neutral-200: 92% 0.007 230;
+    --neutral-300: 86% 0.009 230;
+    --neutral-400: 70% 0.012 230;
+    --neutral-500: 58% 0.014 230;
+    --neutral-600: 48% 0.018 230;
+    --neutral-700: 38% 0.020 230;
+    --neutral-800: 28% 0.022 230;
+    --neutral-900: 22% 0.022 230;
+
+    --ink: 22% 0.022 230;
+    --brand: 45% 0.10 230;
+    --brand-fg: 98.5% 0.005 230;
+    --brand-subtle: 94% 0.018 230;
+
+    --surface: 100% 0 0;
+
+    --src-only: 68% 0.15 60;
+    --tgt-only: 62% 0.15 240;
+    --aligned: 52% 0.13 155;
+    --empty: 70% 0.005 230;
+
+    --red-50: 97% 0.015 25;
+    --red-100: 93% 0.035 25;
+    --red-200: 87% 0.06 25;
+    --red-300: 78% 0.10 25;
+    --red-500: 62% 0.20 25;
+    --red-600: 55% 0.21 25;
+    --red-700: 48% 0.18 25;
+
+    /* Composed shadow strings — swapped wholesale per theme so dark mode
+       can use stronger near-black drops without re-deriving alphas in
+       Tailwind's static box-shadow definitions. */
+    --shadow-sm:
+      0 1px 2px 0 oklch(20% 0.02 230 / 0.04),
+      0 1px 1px 0 oklch(20% 0.02 230 / 0.03);
+    --shadow-md:
+      0 2px 4px -1px oklch(20% 0.02 230 / 0.06),
+      0 1px 2px 0 oklch(20% 0.02 230 / 0.04);
+    --shadow-lg:
+      0 8px 24px -4px oklch(20% 0.02 230 / 0.10),
+      0 4px 8px -2px oklch(20% 0.02 230 / 0.06);
+
+    /* Segment-tone fills used in AlignmentEditor + MobileSegmentView.
+       Hierarchy intent: aligned is *done* (whisper), src-only / tgt-only are
+       *action items* (more confident), empty is *absence* (no fill, dashed). */
+    --tone-aligned-alpha: 0.05;
+    --tone-src-alpha: 0.10;
+    --tone-tgt-alpha: 0.09;
+
+    /* Darker variants of the segment accents, sized for *text* use so labels
+       clear ~4.5:1 on the body surface and ~3:1 on the lifted tone fills. */
+    --src-only-text: 50% 0.17 60;
+    --tgt-only-text: 48% 0.17 240;
+    --aligned-text: 42% 0.13 155;
+
     --color-src: oklch(68% 0.15 60);
     --color-tgt: oklch(62% 0.15 240);
     --color-aligned: oklch(52% 0.13 155);
     --color-brand: oklch(45% 0.10 230);
     --color-ink: oklch(22% 0.022 230);
   }
+
+  /* Dark tokens — applied either explicitly via [data-theme="dark"] or by
+     system preference when no explicit theme override is set. */
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --neutral-50: 16% 0.018 230;
+      --neutral-100: 20% 0.020 230;
+      --neutral-200: 26% 0.022 230;
+      --neutral-300: 34% 0.022 230;
+      --neutral-400: 52% 0.018 230;
+      --neutral-500: 64% 0.014 230;
+      --neutral-600: 74% 0.012 230;
+      --neutral-700: 84% 0.010 230;
+      --neutral-800: 92% 0.008 230;
+      --neutral-900: 97% 0.005 230;
+
+      --ink: 97% 0.005 230;
+      --brand: 72% 0.12 230;
+      --brand-fg: 16% 0.018 230;
+      --brand-subtle: 28% 0.04 230;
+
+      --surface: 22% 0.022 230;
+
+      --src-only: 78% 0.13 60;
+      --tgt-only: 74% 0.13 240;
+      --aligned: 72% 0.12 155;
+      --empty: 36% 0.005 230;
+
+      --red-50: 26% 0.06 25;
+      --red-100: 32% 0.08 25;
+      --red-200: 40% 0.10 25;
+      --red-300: 52% 0.14 25;
+      --red-500: 68% 0.19 25;
+      --red-600: 62% 0.20 25;
+      --red-700: 56% 0.18 25;
+
+      --shadow-tint: 0% 0 0;
+
+      --color-src: oklch(78% 0.13 60);
+      --color-tgt: oklch(74% 0.13 240);
+      --color-aligned: oklch(72% 0.12 155);
+      --color-brand: oklch(72% 0.12 230);
+      --color-ink: oklch(97% 0.005 230);
+    }
+  }
+  [data-theme="dark"] {
+    --neutral-50: 16% 0.018 230;
+    --neutral-100: 20% 0.020 230;
+    --neutral-200: 26% 0.022 230;
+    --neutral-300: 34% 0.022 230;
+    --neutral-400: 52% 0.018 230;
+    --neutral-500: 64% 0.014 230;
+    --neutral-600: 74% 0.012 230;
+    --neutral-700: 84% 0.010 230;
+    --neutral-800: 92% 0.008 230;
+    --neutral-900: 97% 0.005 230;
+
+    --ink: 97% 0.005 230;
+    --brand: 72% 0.12 230;
+    --brand-fg: 16% 0.018 230;
+    /* Lifted from the body (16% L) so info banners read as a confident tint
+       rather than a barely-perceptible chip. */
+    --brand-subtle: 32% 0.05 230;
+
+    --surface: 22% 0.022 230;
+
+    --src-only: 78% 0.13 60;
+    --tgt-only: 74% 0.13 240;
+    --aligned: 72% 0.12 155;
+    --empty: 36% 0.005 230;
+
+    --red-50: 26% 0.06 25;
+    --red-100: 32% 0.08 25;
+    --red-200: 40% 0.10 25;
+    --red-300: 52% 0.14 25;
+    --red-500: 70% 0.18 25;
+    --red-600: 66% 0.19 25;
+    /* Lifted to ~72% L so error-panel text clears AA on the --red-50 fill
+       and reads as foreground rather than as a chip color. */
+    --red-700: 72% 0.14 25;
+
+    --shadow-sm:
+      0 1px 2px 0 oklch(0% 0 0 / 0.35),
+      0 1px 1px 0 oklch(0% 0 0 / 0.25);
+    --shadow-md:
+      0 2px 6px -1px oklch(0% 0 0 / 0.45),
+      0 1px 2px 0 oklch(0% 0 0 / 0.30);
+    --shadow-lg:
+      0 12px 32px -6px oklch(0% 0 0 / 0.55),
+      0 6px 12px -3px oklch(0% 0 0 / 0.35);
+
+    --tone-aligned-alpha: 0.12;
+    --tone-src-alpha: 0.20;
+    --tone-tgt-alpha: 0.18;
+
+    --src-only-text: 82% 0.13 60;
+    --tgt-only-text: 80% 0.14 240;
+    --aligned-text: 78% 0.13 155;
+
+    --color-src: oklch(78% 0.13 60);
+    --color-tgt: oklch(74% 0.13 240);
+    --color-aligned: oklch(72% 0.12 155);
+    --color-brand: oklch(72% 0.12 230);
+    --color-ink: oklch(97% 0.005 230);
+  }
+
   html,
   body,
   #root {
@@ -31,20 +204,48 @@
   select {
     font-size: inherit;
   }
+  /* Pin native form-control surfaces to the OKLCH ramp instead of the
+     browser's default white — but only when the component hasn't already
+     declared its own background utility. Scoped with :where + :not so it
+     never beats an explicit bg-* / focus-visible:bg-* class. */
+  :where(input, textarea, select):not([class*="bg-"]):not([class*=":bg-"]) {
+    color: oklch(var(--ink));
+    background-color: oklch(var(--surface));
+  }
 }
 
 @layer components {
   .btn {
-    @apply inline-flex items-center justify-center min-h-touch min-w-touch px-3 rounded-md border border-neutral-300 bg-white text-ink shadow-sm text-sm font-medium hover:bg-neutral-100 active:bg-neutral-200 transition disabled:opacity-50;
+    @apply inline-flex items-center justify-center min-h-touch min-w-touch px-3 rounded-md border border-neutral-300 bg-surface text-ink shadow-sm text-sm font-medium transition disabled:opacity-50;
+  }
+  /* Hover/active use an ink-tinted overlay so the delta works regardless of
+     base lightness — fixes "hover disappears in dark" where bg-neutral-100
+     and bg-surface sit within 2 L of each other. */
+  .btn:hover:not(:disabled) {
+    background-color: oklch(var(--ink) / 0.06);
+  }
+  .btn:active:not(:disabled) {
+    background-color: oklch(var(--ink) / 0.12);
   }
   .btn-primary {
-    @apply btn bg-ink text-brand-fg border-ink hover:bg-neutral-800 active:bg-neutral-700;
+    @apply btn bg-ink text-brand-fg border-ink;
+  }
+  /* Primary keeps its own hover ramp — the ink-overlay trick is invisible
+     against an ink base (overlay color == base color). */
+  .btn-primary:hover:not(:disabled) {
+    background-color: oklch(var(--neutral-800));
+  }
+  .btn-primary:active:not(:disabled) {
+    background-color: oklch(var(--neutral-700));
   }
   .btn-danger {
-    @apply btn text-red-700 hover:bg-red-50 border-red-200;
+    @apply btn text-red-700 border-red-200;
+  }
+  .btn-danger:hover:not(:disabled) {
+    background-color: oklch(var(--red-50));
   }
   .chunk-card {
-    @apply rounded-md border border-neutral-200 bg-white p-3 shadow-sm hover:border-neutral-300;
+    @apply rounded-md border border-neutral-200 bg-surface p-3 shadow-sm hover:border-neutral-300;
   }
   .chip {
     @apply inline-flex items-center gap-1 rounded-full bg-neutral-200 px-3 py-1 text-xs font-medium;
@@ -69,5 +270,58 @@
     .editor-page {
       padding-bottom: 2rem;
     }
+  }
+
+  /* Segment-tone fills.
+     - aligned: a whisper. The segment is *done*, the eye should pass it.
+     - src-only / tgt-only: confident tint. These are *action items* needing
+       review; the color signals "look here" without shouting.
+     - empty: no fill; a 1px dashed border reads as "absence", not as a
+       category alongside the others. */
+  /* All four tones use a real 1px border (not box-shadow) so their box model
+     is identical — switching between them never shifts content by 1px. */
+  .tone-aligned {
+    background-color: oklch(var(--aligned) / var(--tone-aligned-alpha));
+    border: 1px solid oklch(var(--aligned) / 0.28);
+  }
+  .tone-src-only {
+    background-color: oklch(var(--src-only) / var(--tone-src-alpha));
+    border: 1px solid oklch(var(--src-only) / 0.38);
+  }
+  .tone-tgt-only {
+    background-color: oklch(var(--tgt-only) / var(--tone-tgt-alpha));
+    border: 1px solid oklch(var(--tgt-only) / 0.36);
+  }
+  .tone-empty {
+    background-color: transparent;
+    border: 1px dashed oklch(var(--neutral-300));
+  }
+}
+
+@layer utilities {
+  /* Generic hover/press overlay that works on any base surface. The overlay
+     color is --ink, which flips with the theme, so a dark surface gets a light
+     tint and vice versa — fixes the "hover vanishes in dark" failure mode of
+     base-bound utilities like hover:bg-neutral-100. */
+  .hover-fade {
+    transition: background-color 120ms ease-out;
+  }
+  .hover-fade:hover {
+    background-color: oklch(var(--ink) / 0.06);
+  }
+  .hover-fade:active {
+    background-color: oklch(var(--ink) / 0.12);
+  }
+
+  /* Accent text in darker variants tuned for label contrast. Pair with
+     .tone-* fills so the same hue carries both surface and label. */
+  .tone-text-aligned {
+    color: oklch(var(--aligned-text));
+  }
+  .tone-text-src {
+    color: oklch(var(--src-only-text));
+  }
+  .tone-text-tgt {
+    color: oklch(var(--tgt-only-text));
   }
 }

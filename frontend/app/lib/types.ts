@@ -62,9 +62,15 @@ export interface InferOut {
 }
 
 export interface TranslateSourceOut {
+  /**
+   * Translations aligned to the request: to the sent `texts` for a partial
+   * request, or to the record's source chunks for a whole-record request.
+   */
   translations: string[];
   response: string;
   parse_error: boolean;
+  /** Resolved destination language; reuse it on follow-up partial requests. */
+  target_language?: string | null;
 }
 
 export interface BatchUploadError {

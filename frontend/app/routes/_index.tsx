@@ -31,7 +31,7 @@ export default function ProjectsIndex() {
       <VisuallyHidden as="h1">Projects</VisuallyHidden>
       <Toolbar crumbs={[{ label: "Projects" }]} />
       <main className="mx-auto max-w-4xl space-y-6 p-4">
-        <section className="rounded-lg bg-white p-4 ring-1 ring-neutral-200">
+        <section className="rounded-lg bg-surface p-4 ring-1 ring-neutral-200">
           <h2 className="mb-1 text-base font-semibold text-ink">Start a new project</h2>
           <p className="mb-3 text-xs text-neutral-500">
             Each project gets its own database. Records you upload here stay isolated.
@@ -94,7 +94,7 @@ export default function ProjectsIndex() {
               </li>
             ))}
             {projects.data && projects.data.length === 0 && (
-              <li className="col-span-full rounded-md border border-dashed border-neutral-300 bg-white p-8 text-center">
+              <li className="col-span-full rounded-md border border-dashed border-neutral-300 bg-surface p-8 text-center">
                 <p className="text-sm font-medium text-ink">No projects yet</p>
                 <p className="mt-1 text-xs text-neutral-500">
                   Create one above to start uploading source / target text pairs.

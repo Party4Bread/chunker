@@ -55,3 +55,35 @@ def test_record_patch_persists_after_fresh_app_load(tmp_path, monkeypatch):
     assert reloaded["tgt_chunks"] == ["changed target", "second target"]
     assert reloaded["gt_pairs"] == [[1, 1]]
     assert reloaded["notes"] == "saved notes"
+
+
+def test_translate_source_partial_translates_supplied_texts(tmp_path, monkeypatch):
+    from app.main import create_app
+    from chunker_core import translation
+
+    _reset_runtime(monkeypatch, tmp_path)
+    # Stub the real Google endpoint: uppercase each text, detect -> "en".
+    monkeypatch.setattr(translation, "_google_translate_batch", lambda texts, dest: [t.upper() for t in texts])
+    monkeypatch.setattr(translation, "_google_detect", lambda text: "en")
+
+    client = TestClient(create_app())
+    slug = client.post("/api/projects", json={"name": "MT Test"}).json()["slug"]
+    created = client.post(
+        f"/api/projects/{slug}/records/upload",
+        files={
+            "src_file": ("src.txt", b"alpha\nbeta\ngamma", "text/plain"),
+            "tgt_file": ("tgt.txt", b"a\nb\nc", "text/plain"),
+        },
+        data={"run_model": "false"},
+    ).json()
+
+    # Partial: the client sends live text — including text NOT in the saved
+    # record — and gets translations aligned to what it sent, not to the DB.
+    resp = client.post(
+        f"/api/projects/{slug}/records/{created['id']}/translate-source",
+        json={"texts": ["alpha", "unsaved edit"]},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["translations"] == ["ALPHA", "UNSAVED EDIT"]
+    assert body["target_language"] == "en"

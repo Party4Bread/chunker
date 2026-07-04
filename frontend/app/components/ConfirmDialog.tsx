@@ -26,7 +26,7 @@ export function ConfirmDialog({
       open={open}
       onClose={onCancel}
       ariaLabel={title}
-      surfaceClassName="w-full max-w-md rounded-lg border border-neutral-200 bg-white p-5 shadow-lg"
+      surfaceClassName="w-full max-w-md rounded-lg border border-neutral-200 bg-surface p-5 shadow-lg"
     >
       <h2 className="text-base font-semibold text-ink">{title}</h2>
       {description && (
@@ -41,7 +41,7 @@ export function ConfirmDialog({
           onClick={onConfirm}
           className={`!min-h-[36px] !px-3 text-sm ${
             destructive
-              ? "btn border-red-300 bg-red-600 text-brand-fg hover:bg-red-700"
+              ? "btn border-red-300 bg-red-600 text-white hover:bg-red-700"
               : "btn-primary"
           }`}
           autoFocus

@@ -38,7 +38,7 @@ export function MobileActionBar({
   return (
     <nav
       aria-label="record actions"
-      className="fixed inset-x-0 bottom-0 z-30 border-t border-neutral-200 bg-white/95 backdrop-blur lg:hidden"
+      className="fixed inset-x-0 bottom-0 z-30 border-t border-neutral-200 bg-surface/95 backdrop-blur lg:hidden"
       style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
     >
       <div className="flex items-center gap-1.5 px-2 pt-2 text-xs">
@@ -108,7 +108,7 @@ function Btn({
       onClick={onClick}
       disabled={disabled}
       aria-label={label}
-      className={`inline-flex min-h-[40px] items-center justify-center rounded-md border border-neutral-300 bg-white text-neutral-700 shadow-sm transition active:bg-neutral-100 disabled:border-neutral-200 disabled:bg-neutral-100 disabled:text-neutral-400 ${
+      className={`hover-fade inline-flex min-h-[40px] items-center justify-center rounded-md border border-neutral-300 bg-surface text-neutral-700 shadow-sm transition disabled:border-neutral-200 disabled:bg-neutral-100 disabled:text-neutral-400 ${
         compact ? "min-w-[52px] px-2 text-xs" : "min-w-[44px] px-2.5"
       }`}
     >

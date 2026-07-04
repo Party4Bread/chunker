@@ -150,6 +150,7 @@ export function MobileSegmentView({
           accent="src"
           chunks={seg.src}
           baseAbsIndex={seg.src_range[0]}
+          translations={translations ?? undefined}
           hasPrevSegment={safeIdx > 0}
           hasNextSegment={safeIdx < total - 1}
           actions={actions}
@@ -160,12 +161,6 @@ export function MobileSegmentView({
           editingKey={editingKey ?? null}
           onRequestEdit={onRequestEdit}
         />
-
-        {translations && (
-          <>
-            <TranslationPanel translations={translations} baseAbsIndex={seg.src_range[0]} />
-          </>
-        )}
 
         <SideHeader side="tgt" extraTopMargin />
         <ChunkColumn
@@ -192,40 +187,6 @@ export function MobileSegmentView({
         />
       )}
     </section>
-  );
-}
-
-function TranslationPanel({
-  translations,
-  baseAbsIndex,
-}: {
-  translations: string[];
-  baseAbsIndex: number;
-}) {
-  return (
-    <div className="mt-3 space-y-2">
-      <div className="eyebrow">source translation</div>
-      {translations.length === 0 ? (
-        <p className="px-2 py-2 text-xs italic text-neutral-400">— no source text</p>
-      ) : (
-        <ol className="space-y-2">
-          {translations.map((text, i) => (
-            <li
-              key={`mobile-mt:${baseAbsIndex + i}`}
-              className="rounded-md border border-neutral-200 bg-brand-subtle/60 px-3 py-2"
-            >
-              <div className="mb-1 flex items-baseline gap-1.5">
-                <span className="font-mono text-2xs font-semibold text-neutral-500">MT [|{baseAbsIndex + i + 1}|]</span>
-                <span className="font-mono text-2xs text-neutral-400">{text.length}ch</span>
-              </div>
-              <p className="whitespace-pre-wrap font-serif text-base leading-relaxed text-ink">
-                {text || "Translation unavailable."}
-              </p>
-            </li>
-          ))}
-        </ol>
-      )}
-    </div>
   );
 }
 
@@ -282,10 +243,13 @@ interface ChunkColumnProps {
   onCaretChange: (caret: number) => void;
   editingKey: string | null;
   onRequestEdit?: (key: string | null) => void;
+  /** Per-chunk source translations (source column only). When set, each source
+   *  chunk's MT is stacked directly beneath it so the pairing stays obvious. */
+  translations?: string[];
 }
 
 function ChunkColumn(props: ChunkColumnProps) {
-  const { accent, chunks, baseAbsIndex, hasPrevSegment, hasNextSegment, actions, selectedKey, onSelect, caret, onCaretChange, editingKey, onRequestEdit } = props;
+  const { accent, chunks, baseAbsIndex, hasPrevSegment, hasNextSegment, actions, selectedKey, onSelect, caret, onCaretChange, editingKey, onRequestEdit, translations } = props;
   if (chunks.length === 0) {
     return (
       <p className="px-2 py-2 text-xs italic text-neutral-400">
@@ -328,6 +292,7 @@ function ChunkColumn(props: ChunkColumnProps) {
               onRequestEdit={(editing) => onRequestEdit?.(editing ? key : null)}
               caretFromState={selectedKey === key ? caret : null}
             />
+            {translations && <MobileMTCard text={translations[i] ?? ""} displayIndex={absIdx + 1} />}
             {i < chunks.length - 1 && (
               <SplitSegmentBtn
                 accent={accent}
@@ -338,6 +303,27 @@ function ChunkColumn(props: ChunkColumnProps) {
         );
       })}
     </ol>
+  );
+}
+
+// MT stacked directly under its source chunk on mobile, inset to read as a
+// child of the chunk above it. Empty = not fetched yet (muted placeholder).
+function MobileMTCard({ text, displayIndex }: { text: string; displayIndex: number }) {
+  const pending = !text;
+  return (
+    <div className="ml-3 mt-1 rounded-md border border-neutral-200 bg-brand-subtle/60 px-3 py-2">
+      <div className="mb-1 flex items-baseline gap-1.5">
+        <span className="font-mono text-2xs font-semibold text-neutral-500">MT [|{displayIndex}|]</span>
+        {!pending && <span className="font-mono text-2xs text-neutral-400">{text.length}ch</span>}
+      </div>
+      <p
+        className={`whitespace-pre-wrap font-serif text-base leading-relaxed ${
+          pending ? "italic text-neutral-400" : "text-ink"
+        }`}
+      >
+        {text || "translating…"}
+      </p>
+    </div>
   );
 }
 

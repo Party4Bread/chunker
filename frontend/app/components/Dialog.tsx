@@ -19,7 +19,7 @@ export function Dialog({
   onClose,
   ariaLabel,
   children,
-  surfaceClassName = "max-h-[80vh] w-full max-w-xl overflow-auto rounded-lg border border-neutral-200 bg-white p-5 shadow-lg",
+  surfaceClassName = "max-h-[80vh] w-full max-w-xl overflow-auto rounded-lg border border-neutral-200 bg-surface p-5 shadow-lg",
 }: DialogProps) {
   const containerRef = useFocusTrap<HTMLDivElement>(open, onClose);
 

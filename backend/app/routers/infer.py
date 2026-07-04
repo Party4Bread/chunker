@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from chunker_core.parsing import build_chunked_sets, monotonic_sort_pairs, prune_empty_chunks
+from chunker_core.translation import TranslationRateLimitError
 
 from ..db import project_session, registry_session
 from ..models import ProjectMeta, Record
@@ -116,17 +117,38 @@ def translate_source(
     if record is None:
         raise HTTPException(status_code=404, detail="record not found")
 
-    src, tgt, _ = prune_empty_chunks(record.src_chunks or [], record.tgt_chunks or [])
-    if not src:
-        raise HTTPException(status_code=400, detail="record has no source chunks")
+    all_src = record.src_chunks or []
+    all_tgt = record.tgt_chunks or []
+
+    if payload.texts is not None:
+        # Partial: translate exactly the client-supplied texts (the live editor
+        # chunks, which may not be persisted yet). Target side is still sampled
+        # from the record so the destination language stays consistent.
+        texts = list(payload.texts)
+        tgt = all_tgt
+    else:
+        texts, tgt, _ = prune_empty_chunks(all_src, all_tgt)
+        if not texts:
+            raise HTTPException(status_code=400, detail="record has no source chunks")
 
     try:
-        result = run_source_translation(src, tgt, payload.target_language)
+        result = run_source_translation(texts, tgt, payload.target_language)
+    except TranslationRateLimitError as exc:
+        # Upstream throttled us even after retries — ask the client to back off
+        # rather than reporting a generic upstream failure.
+        raise HTTPException(
+            status_code=429,
+            detail=f"translation rate-limited: {exc!s}",
+            headers={"Retry-After": "30"},
+        ) from exc
     except Exception as exc:
+        # Everything else — including a non-rate-limit TranslationError — is an
+        # upstream failure the client can't fix by retrying immediately.
         raise HTTPException(status_code=502, detail=f"translation failed: {exc!s}") from exc
 
     return TranslateSourceOut(
         translations=[str(item) for item in result["translations"]],
         response=str(result["response"]),
         parse_error=bool(result["parse_error"]),
+        target_language=result.get("target_language"),
     )

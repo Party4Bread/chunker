@@ -56,7 +56,7 @@ export function HelpOverlay({ open, onClose }: HelpOverlayProps) {
         <button
           type="button"
           onClick={onClose}
-          className="rounded p-1 text-neutral-500 hover:bg-neutral-100 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
+          className="rounded p-1 text-neutral-500 hover:text-ink hover-fade focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
           aria-label="Close keyboard shortcuts"
         >
           ×

@@ -1,4 +1,5 @@
 import { Link } from "react-router";
+import { ThemeToggle } from "./ThemeToggle";
 
 interface Crumb {
   to?: string;
@@ -8,7 +9,7 @@ interface Crumb {
 export function Toolbar({ crumbs, right }: { crumbs: Crumb[]; right?: React.ReactNode }) {
   return (
     <header className="sticky top-0 z-10 flex flex-wrap items-center gap-3 border-b border-neutral-200 bg-neutral-50/90 px-3 py-2 backdrop-blur sm:px-4 sm:py-3">
-      <Link to="/" className="group flex items-center gap-2 rounded px-1 -mx-1 py-0.5 hover:bg-neutral-100">
+      <Link to="/" className="group flex items-center gap-2 rounded px-1 -mx-1 py-0.5 hover-fade">
         <BrandMark />
         <span className="hidden text-sm font-semibold text-ink sm:inline">chunker</span>
       </Link>
@@ -18,7 +19,7 @@ export function Toolbar({ crumbs, right }: { crumbs: Crumb[]; right?: React.Reac
           <span key={i} className="flex items-center gap-1.5">
             {i > 0 && <span className="text-neutral-300" aria-hidden="true">/</span>}
             {c.to ? (
-              <Link to={c.to} className="rounded px-1 py-0.5 hover:bg-neutral-100 hover:text-ink">
+              <Link to={c.to} className="rounded px-1 py-0.5 hover:text-ink hover-fade">
                 {c.label}
               </Link>
             ) : (
@@ -27,7 +28,10 @@ export function Toolbar({ crumbs, right }: { crumbs: Crumb[]; right?: React.Reac
           </span>
         ))}
       </nav>
-      {right && <div className="flex flex-wrap items-center gap-1.5">{right}</div>}
+      <div className="flex flex-wrap items-center gap-1.5">
+        {right}
+        <ThemeToggle />
+      </div>
     </header>
   );
 }

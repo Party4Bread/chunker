@@ -209,11 +209,16 @@ function SegmentBlock({
         </span>
       </header>
 
-      <div className={`grid gap-3 ${translations ? "lg:grid-cols-[minmax(0,1fr)_minmax(16rem,0.85fr)_minmax(0,1fr)]" : "lg:grid-cols-2"}`}>
+      {/* When MT is shown, each source chunk carries its translation inline
+          (see ChunkList) so the two stay row-aligned no matter how tall either
+          gets — hence a 2-column layout (source+MT | target) rather than 3
+          independent columns that drift apart down a long segment. */}
+      <div className={`grid gap-3 ${translations ? "lg:grid-cols-[minmax(0,1.85fr)_minmax(0,1fr)]" : "lg:grid-cols-2"}`}>
         <ChunkList
           accent="src"
           chunks={seg.src}
           baseAbsIndex={seg.src_range[0]}
+          translations={translations ?? undefined}
           hasPrevSegment={hasPrevSegment}
           hasNextSegment={hasNextSegment}
           actions={actions}
@@ -224,12 +229,6 @@ function SegmentBlock({
           editingKey={editingKey}
           onRequestEdit={onRequestEdit}
         />
-        {translations && (
-          <TranslationList
-            translations={translations}
-            baseAbsIndex={seg.src_range[0]}
-          />
-        )}
         <ChunkList
           accent="tgt"
           chunks={seg.tgt}
@@ -249,37 +248,25 @@ function SegmentBlock({
   );
 }
 
-function TranslationList({
-  translations,
-  baseAbsIndex,
-}: {
-  translations: string[];
-  baseAbsIndex: number;
-}) {
-  if (translations.length === 0) {
-    return (
-      <p className="flex h-full items-center justify-center px-3 py-2 text-xs italic text-neutral-400">
-        — no source text
-      </p>
-    );
-  }
+// MT card rendered beside a source chunk (same grid row → always aligned).
+// An empty translation means "not fetched yet" — shown as a muted placeholder
+// rather than an error, since on-demand translation fills it in shortly.
+function MTCard({ text, displayIndex }: { text: string; displayIndex: number }) {
+  const pending = !text;
   return (
-    <ol className="flex flex-col gap-2">
-      {translations.map((text, i) => (
-        <li
-          key={`mt:${baseAbsIndex + i}`}
-          className="rounded-md border border-neutral-200 bg-brand-subtle/60 px-3 py-2"
-        >
-          <div className="mb-1 flex items-baseline gap-1.5">
-            <span className="font-mono text-2xs font-semibold text-neutral-500">MT [|{baseAbsIndex + i + 1}|]</span>
-            <span className="font-mono text-2xs text-neutral-400">{text.length}ch</span>
-          </div>
-          <p className="whitespace-pre-wrap font-serif text-base leading-relaxed text-ink">
-            {text || "Translation unavailable."}
-          </p>
-        </li>
-      ))}
-    </ol>
+    <div className="rounded-md border border-neutral-200 bg-brand-subtle/60 px-3 py-2">
+      <div className="mb-1 flex items-baseline gap-1.5">
+        <span className="font-mono text-2xs font-semibold text-neutral-500">MT [|{displayIndex}|]</span>
+        {!pending && <span className="font-mono text-2xs text-neutral-400">{text.length}ch</span>}
+      </div>
+      <p
+        className={`whitespace-pre-wrap font-serif text-base leading-relaxed ${
+          pending ? "italic text-neutral-400" : "text-ink"
+        }`}
+      >
+        {text || "translating…"}
+      </p>
+    </div>
   );
 }
 
@@ -296,10 +283,13 @@ interface ChunkListProps {
   onCaretChange: (caret: number) => void;
   editingKey: string | null;
   onRequestEdit?: (key: string | null) => void;
+  /** Per-chunk source translations (source column only). When set, each chunk
+   *  renders its MT card in the same row so the two stay vertically aligned. */
+  translations?: string[];
 }
 
 function ChunkList(props: ChunkListProps) {
-  const { accent, chunks, baseAbsIndex, hasPrevSegment, hasNextSegment, actions, selectedKey, onSelect, caret, onCaretChange, editingKey, onRequestEdit } = props;
+  const { accent, chunks, baseAbsIndex, hasPrevSegment, hasNextSegment, actions, selectedKey, onSelect, caret, onCaretChange, editingKey, onRequestEdit, translations } = props;
   if (chunks.length === 0) {
     return (
       <p className="flex h-full items-center justify-center px-3 py-2 text-xs italic text-neutral-400">
@@ -314,33 +304,45 @@ function ChunkList(props: ChunkListProps) {
         const key = chunkKey(accent, absIdx);
         const isFirstInSeg = i === 0;
         const isLastInSeg = i === chunks.length - 1;
+        const card = (
+          <ChunkCard
+            displayIndex={absIdx + 1}
+            text={text}
+            accent={accent}
+            selected={selectedKey === key}
+            editing={editingKey === key}
+            onSelect={() => onSelect({ side: accent, index: absIdx })}
+            onCaretChange={onCaretChange}
+            onEdit={(t) => actions.editChunkText(accent, absIdx, t)}
+            onSplit={(c) => actions.splitChunk(accent, absIdx, c)}
+            onMergeNext={i < chunks.length - 1 ? () => actions.mergeWithNext(accent, absIdx) : undefined}
+            onMoveToPrevSegment={
+              isFirstInSeg && hasPrevSegment
+                ? () => actions.moveChunkToPrevSegment(accent, absIdx)
+                : undefined
+            }
+            onMoveToNextSegment={
+              isLastInSeg && hasNextSegment
+                ? () => actions.moveChunkToNextSegment(accent, absIdx)
+                : undefined
+            }
+            onDelete={() => actions.deleteChunk(accent, absIdx)}
+            onRequestEdit={(editing) => onRequestEdit?.(editing ? key : null)}
+            caretFromState={selectedKey === key ? caret : null}
+          />
+        );
         return (
           <li key={key}>
-            <ChunkCard
-              displayIndex={absIdx + 1}
-              text={text}
-              accent={accent}
-              selected={selectedKey === key}
-              editing={editingKey === key}
-              onSelect={() => onSelect({ side: accent, index: absIdx })}
-              onCaretChange={onCaretChange}
-              onEdit={(t) => actions.editChunkText(accent, absIdx, t)}
-              onSplit={(c) => actions.splitChunk(accent, absIdx, c)}
-              onMergeNext={i < chunks.length - 1 ? () => actions.mergeWithNext(accent, absIdx) : undefined}
-              onMoveToPrevSegment={
-                isFirstInSeg && hasPrevSegment
-                  ? () => actions.moveChunkToPrevSegment(accent, absIdx)
-                  : undefined
-              }
-              onMoveToNextSegment={
-                isLastInSeg && hasNextSegment
-                  ? () => actions.moveChunkToNextSegment(accent, absIdx)
-                  : undefined
-              }
-              onDelete={() => actions.deleteChunk(accent, absIdx)}
-              onRequestEdit={(editing) => onRequestEdit?.(editing ? key : null)}
-              caretFromState={selectedKey === key ? caret : null}
-            />
+            {translations ? (
+              // Source card and its MT share one grid row, top-aligned, so they
+              // never drift apart even when either wraps to several lines.
+              <div className="grid items-start gap-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,0.85fr)]">
+                {card}
+                <MTCard text={translations[i] ?? ""} displayIndex={absIdx + 1} />
+              </div>
+            ) : (
+              card
+            )}
             {i < chunks.length - 1 && (
               <SplitSegmentAffordance
                 accent={accent}

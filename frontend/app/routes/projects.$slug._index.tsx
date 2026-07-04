@@ -103,7 +103,7 @@ export default function ProjectIndex() {
             </li>
           ))}
           {records.data && records.data.length === 0 && (
-            <li className="rounded-md border border-dashed border-neutral-300 bg-white p-8 text-center">
+            <li className="rounded-md border border-dashed border-neutral-300 bg-surface p-8 text-center">
               <p className="text-sm font-medium text-ink">No records yet</p>
               <p className="mt-1 text-xs text-neutral-500">
                 Upload a source / target text pair to get started.

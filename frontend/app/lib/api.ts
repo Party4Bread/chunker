@@ -2,6 +2,29 @@ import type { BatchUploadOut, InferOut, Project, RecordOut, RecordPatch, RecordS
 
 const API_BASE = "/api";
 
+/**
+ * Error carrying the HTTP status so callers can branch on it — notably 429
+ * (rate limited) from the source-MT endpoint, which surfaces a Retry-After.
+ */
+export class ApiError extends Error {
+  readonly status: number;
+  readonly retryAfter: number | null;
+
+  constructor(status: number, statusText: string, body: string, retryAfter: number | null) {
+    super(`${status} ${statusText}: ${body}`);
+    this.name = "ApiError";
+    this.status = status;
+    this.retryAfter = retryAfter;
+  }
+}
+
+async function raiseApiError(res: Response): Promise<never> {
+  const body = await res.text();
+  const raw = res.headers.get("Retry-After");
+  const seconds = raw != null && raw.trim() !== "" ? Number(raw) : NaN;
+  throw new ApiError(res.status, res.statusText, body, Number.isFinite(seconds) ? seconds : null);
+}
+
 async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,
@@ -10,10 +33,7 @@ async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
       ...(init?.headers || {}),
     },
   });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`${res.status} ${res.statusText}: ${text}`);
-  }
+  if (!res.ok) await raiseApiError(res);
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
 }
@@ -49,10 +69,17 @@ export const api = {
         start_tgt_index: opts.start_tgt_index ?? 0,
       }),
     }),
-  translateSource: (slug: string, id: number, targetLanguage?: string) =>
+  translateSource: (
+    slug: string,
+    id: number,
+    opts: { texts?: string[]; targetLanguage?: string } = {},
+  ) =>
     jsonFetch<TranslateSourceOut>(`/projects/${slug}/records/${id}/translate-source`, {
       method: "POST",
-      body: JSON.stringify({ target_language: targetLanguage?.trim() || null }),
+      body: JSON.stringify({
+        target_language: opts.targetLanguage?.trim() || null,
+        texts: opts.texts ?? null,
+      }),
     }),
 
   uploadRecord: async (
@@ -70,9 +97,7 @@ export const api = {
       method: "POST",
       body: fd,
     });
-    if (!res.ok) {
-      throw new Error(`${res.status} ${res.statusText}: ${await res.text()}`);
-    }
+    if (!res.ok) await raiseApiError(res);
     return (await res.json()) as RecordOut;
   },
 
@@ -90,9 +115,7 @@ export const api = {
       method: "POST",
       body: fd,
     });
-    if (!res.ok) {
-      throw new Error(`${res.status} ${res.statusText}: ${await res.text()}`);
-    }
+    if (!res.ok) await raiseApiError(res);
     return (await res.json()) as BatchUploadOut;
   },
 

@@ -31,10 +31,10 @@ import {
   splitChunk,
   switchSide,
 } from "~/lib/alignment";
-import { api } from "~/lib/api";
+import { api, ApiError } from "~/lib/api";
 import { useHistory } from "~/lib/useHistory";
 import { useHotkeys, modLabel } from "~/lib/useHotkeys";
-import type { RecordOut, RecordSummary, TranslateSourceOut } from "~/lib/types";
+import type { RecordOut, RecordSummary } from "~/lib/types";
 
 const EMPTY_STATE: AlignmentState = { srcChunks: [], tgtChunks: [], pairs: [] };
 
@@ -79,7 +79,16 @@ export default function RecordEditor() {
   const [dirty, setDirty] = useState(false);
   const [segmentIdx, setSegmentIdx] = useState(0);
   const [showTranslations, setShowTranslations] = useState(false);
-  const [sourceTranslation, setSourceTranslation] = useState<TranslateSourceOut | null>(null);
+  // Source MT is fetched on demand, one segment at a time. It's cached keyed by
+  // the source *text* (not the chunk index) so it survives index shifts from
+  // split/merge/delete/move and is invalidated automatically when a chunk's
+  // text is edited — a changed text is simply a cache miss. `mtAttempted` holds
+  // texts already requested (success or failure) so the auto-fetch effect never
+  // loops on a failed one.
+  const [mtByText, setMtByText] = useState<Map<string, string>>(() => new Map());
+  const [mtAttempted, setMtAttempted] = useState<Set<string>>(() => new Set());
+  const [mtLang, setMtLang] = useState<string | null>(null);
+  const [mtParseError, setMtParseError] = useState(false);
   const dirtyVersionRef = useRef(0);
 
   // Reset history + selection whenever the server gives us a different record.
@@ -96,7 +105,10 @@ export default function RecordEditor() {
     setDirty(false);
     setSegmentIdx(0);
     setShowTranslations(false);
-    setSourceTranslation(null);
+    setMtByText(new Map());
+    setMtAttempted(new Set());
+    setMtLang(null);
+    setMtParseError(false);
   }, [recordQ.data?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const state = history.state;
@@ -282,14 +294,77 @@ export default function RecordEditor() {
       });
     },
   });
-
+  // We send the source *text* to translate — not a chunk index — because live
+  // edits live in React state and aren't persisted until the debounced autosave.
+  // An index-based request would make the backend translate stale DB text. The
+  // response is aligned to the texts we sent, so we can cache it by text.
   const translateMut = useMutation({
-    mutationFn: () => api.translateSource(slug, recordId),
-    onSuccess: (out) => {
-      setSourceTranslation(out);
-      setShowTranslations(true);
+    mutationFn: (texts: string[]) =>
+      api.translateSource(slug, recordId, { texts, targetLanguage: mtLang ?? undefined }),
+    onSuccess: (out, texts) => {
+      if (out.target_language && !mtLang) setMtLang(out.target_language);
+      if (out.parse_error) setMtParseError(true);
+      setMtByText((prev) => {
+        const next = new Map(prev);
+        texts.forEach((text, i) => {
+          if (out.translations[i] !== undefined) next.set(text, out.translations[i]);
+        });
+        return next;
+      });
+    },
+    // Mark every requested text as attempted regardless of outcome so a failed
+    // chunk shows blank instead of re-firing the effect in a tight loop.
+    onSettled: (_data, _err, texts) => {
+      setMtAttempted((prev) => {
+        const next = new Set(prev);
+        for (const t of texts) next.add(t);
+        return next;
+      });
     },
   });
+
+  // Auto-translate the current segment's source chunks when MT is shown.
+  // Debounced so live chunk edits (which update state per keystroke) don't fire
+  // a request on every character; re-translation happens once typing settles.
+  useEffect(() => {
+    if (!showTranslations) return;
+    const seg = segments[segmentIdx];
+    if (!seg) return;
+    const timer = setTimeout(() => {
+      if (translateMut.isPending) return;
+      const [start, end] = seg.src_range;
+      const texts: string[] = [];
+      const seen = new Set<string>();
+      for (let i = start; i < end; i++) {
+        const text = state.srcChunks[i] ?? "";
+        if (!text.trim()) continue; // empty chunks render blank without a request
+        if (mtByText.has(text) || mtAttempted.has(text) || seen.has(text)) continue;
+        seen.add(text);
+        texts.push(text);
+      }
+      if (texts.length > 0) translateMut.mutate(texts);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [showTranslations, segmentIdx, segments, state.srcChunks, mtByText, mtAttempted, translateMut]);
+
+  // Dense array indexed by absolute chunk index, resolved through the by-text
+  // cache; "" for not-yet-translated. Rendering components stay unchanged.
+  const sourceTranslations = useMemo(
+    () => (showTranslations ? state.srcChunks.map((text) => mtByText.get(text) ?? "") : null),
+    [showTranslations, state.srcChunks, mtByText],
+  );
+
+  // Let the user re-request the current segment after a failure (e.g. a 429).
+  const retryCurrentSegment = useCallback(() => {
+    const seg = segments[segmentIdx];
+    if (!seg) return;
+    const [start, end] = seg.src_range;
+    setMtAttempted((prev) => {
+      const next = new Set(prev);
+      for (let i = start; i < end; i++) next.delete(state.srcChunks[i] ?? "");
+      return next;
+    });
+  }, [segments, segmentIdx, state.srcChunks]);
 
   const applyProposal = useCallback(() => {
     if (!proposal) return;
@@ -473,12 +548,13 @@ export default function RecordEditor() {
     );
   }
 
-  const errorBanner =
-    saveMut.isError ||
-    reinferMut.isError ||
-    reinferBelowMut.isError ||
-    reviewMut.isError ||
-    translateMut.isError;
+  const activeError = (saveMut.error ||
+    reinferMut.error ||
+    reinferBelowMut.error ||
+    reviewMut.error ||
+    translateMut.error) as Error | null;
+  const errorBanner = activeError != null;
+  const rateLimited = activeError instanceof ApiError && activeError.status === 429;
   const queuePosition = currentIdx >= 0 ? `${currentIdx + 1} / ${ordered.length}` : `· / ${ordered.length}`;
   const canReinferBelow = segmentIdx >= 0 && segmentIdx < segments.length - 1;
 
@@ -573,12 +649,26 @@ export default function RecordEditor() {
       <main className="mx-auto max-w-6xl space-y-3 p-3 sm:p-4">
         {errorBanner && (
           <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-            <span className="font-medium">Couldn't reach the server.</span>{" "}
-            {(saveMut.error as Error)?.message ||
-              (reinferMut.error as Error)?.message ||
-              (reinferBelowMut.error as Error)?.message ||
-              (reviewMut.error as Error)?.message ||
-              (translateMut.error as Error)?.message}
+            {rateLimited ? (
+              <>
+                <span className="font-medium">Translation service is busy.</span>{" "}
+                {(activeError as ApiError).retryAfter
+                  ? `Rate limited — try again in ${(activeError as ApiError).retryAfter}s.`
+                  : "Rate limited — please try again shortly."}{" "}
+                <button
+                  type="button"
+                  onClick={retryCurrentSegment}
+                  className="font-medium underline hover:no-underline"
+                >
+                  Retry
+                </button>
+              </>
+            ) : (
+              <>
+                <span className="font-medium">Couldn't reach the server.</span>{" "}
+                {activeError?.message}
+              </>
+            )}
           </div>
         )}
 
@@ -613,17 +703,13 @@ export default function RecordEditor() {
             <button
               type="button"
               className={`rounded px-3 py-1.5 text-xs font-medium ${showTranslations ? "bg-ink text-brand-fg" : "text-neutral-600 hover-fade"}`}
-              onClick={() => {
-                if (!sourceTranslation) translateMut.mutate();
-                else setShowTranslations(true);
-              }}
-              disabled={translateMut.isPending}
+              onClick={() => setShowTranslations(true)}
             >
-              {translateMut.isPending ? "translating…" : "source MT"}
+              {showTranslations && translateMut.isPending ? "translating…" : "source MT"}
             </button>
           </div>
-          {showTranslations && sourceTranslation?.parse_error && (
-            <span className="text-xs text-red-600">Translation loaded, but some chunks could not be translated.</span>
+          {showTranslations && mtParseError && (
+            <span className="text-xs text-red-600">Some chunks could not be translated.</span>
           )}
         </div>
 
@@ -639,7 +725,7 @@ export default function RecordEditor() {
             actions={actions}
             editingKey={editingKey}
             onRequestEdit={setEditingKey}
-            sourceTranslations={showTranslations ? sourceTranslation?.translations ?? null : null}
+            sourceTranslations={sourceTranslations}
           />
         </div>
         <div className="lg:hidden">
@@ -656,7 +742,7 @@ export default function RecordEditor() {
             actions={actions}
             editingKey={editingKey}
             onRequestEdit={setEditingKey}
-            sourceTranslations={showTranslations ? sourceTranslation?.translations ?? null : null}
+            sourceTranslations={sourceTranslations}
           />
         </div>
 

@@ -97,9 +97,19 @@ class InferOut(BaseModel):
 
 class TranslateSourceRequest(BaseModel):
     target_language: str | None = None
+    # When set, translate exactly these source texts instead of the whole
+    # record. The editor sends the live (possibly unsaved) chunk text so the MT
+    # matches what the reviewer sees, rather than stale persisted text. Enables
+    # per-segment, on-demand translation and keeps each request small.
+    texts: list[str] | None = None
 
 
 class TranslateSourceOut(BaseModel):
-    translations: list[str]
+    # Aligned to the request: to the sent `texts` for a partial request, or to
+    # the record's source chunks for a whole-record request.
+    translations: list[str] = []
     response: str
     parse_error: bool
+    # Resolved destination language, so the client can reuse it on follow-up
+    # partial requests and skip re-detection.
+    target_language: str | None = None
