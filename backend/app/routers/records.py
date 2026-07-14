@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -15,12 +17,12 @@ from ..schemas import ChunkedSegment, RecordOut, RecordPatch, RecordSummary
 router = APIRouter(prefix="/api/projects/{slug}/records", tags=["records"])
 
 
-def _project_db(slug: str) -> Session:
-    return next(project_session(slug))
+def _project_db(slug: str) -> Iterator[Session]:
+    yield from project_session(slug)
 
 
-def _registry_db() -> Session:
-    return next(registry_session())
+def _registry_db() -> Iterator[Session]:
+    yield from registry_session()
 
 
 def _ensure_project(slug: str, registry: Session) -> ProjectMeta:

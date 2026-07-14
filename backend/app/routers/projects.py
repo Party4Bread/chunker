@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -14,8 +16,8 @@ from ..schemas import ProjectCreate, ProjectOut
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
 
-def _registry(session: Session = Depends(lambda: next(registry_session()))) -> Session:
-    return session
+def _registry() -> Iterator[Session]:
+    yield from registry_session()
 
 
 def _to_out(meta: ProjectMeta) -> ProjectOut:

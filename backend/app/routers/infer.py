@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -16,12 +18,12 @@ from ..services.pipeline import run_inference, run_source_translation
 router = APIRouter(prefix="/api/projects/{slug}/records", tags=["infer"])
 
 
-def _project_db(slug: str) -> Session:
-    return next(project_session(slug))
+def _project_db(slug: str) -> Iterator[Session]:
+    yield from project_session(slug)
 
 
-def _registry_db() -> Session:
-    return next(registry_session())
+def _registry_db() -> Iterator[Session]:
+    yield from registry_session()
 
 
 def _merge_pairs_for_reinfer(

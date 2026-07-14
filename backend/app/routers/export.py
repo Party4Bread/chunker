@@ -16,12 +16,12 @@ from ..models import ProjectMeta, Record
 router = APIRouter(prefix="/api/projects/{slug}", tags=["export"])
 
 
-def _project_db(slug: str) -> Session:
-    return next(project_session(slug))
+def _project_db(slug: str) -> Iterator[Session]:
+    yield from project_session(slug)
 
 
-def _registry_db() -> Session:
-    return next(registry_session())
+def _registry_db() -> Iterator[Session]:
+    yield from registry_session()
 
 
 def _record_to_jsonl_obj(record: Record) -> dict:
