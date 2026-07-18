@@ -1,6 +1,6 @@
 # Chunker — postprocessing web app
 
-Postprocessing UI for [`p4b/qwen3-4b-chunky`](https://huggingface.co/p4b/qwen3-4b-chunky).
+Postprocessing UI for [`p4b/qwen3.5-4b-chunky`](https://huggingface.co/p4b/qwen3.5-4b-chunky-FP8).
 Upload a source/target text pair, see the model's proposed chunking + alignment, edit it on phone or desktop, export a JSONL dataset in the exact shape `train_sft.py` consumes.
 
 ## Layout
@@ -18,8 +18,9 @@ frontend/       React Router v7 (SPA mode) + Tailwind + TanStack Query
 In three terminals:
 
 ```bash
-# 1. vLLM (GPU)
-vllm serve p4b/qwen3-4b-chunky-nvfp4 --port 8001
+# 1. vLLM (GPU) — qwen3.5-chunky ships the multimodal Qwen3.5 config,
+#    so serve the text tower only with --language-model-only.
+vllm serve p4b/qwen3.5-4b-chunky-FP8 --language-model-only --port 8001
 
 # 2. FastAPI backend
 cd backend

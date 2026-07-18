@@ -14,7 +14,7 @@ class Settings(BaseSettings):
 
     data_dir: Path = Field(default=Path("./data"))
     vllm_base_url: str = Field(default="http://127.0.0.1:8001")
-    vllm_model: str = Field(default="p4b/qwen3-4b-chunky-nvfp4")
+    vllm_model: str = Field(default="p4b/qwen3.5-4b-chunky-FP8")
     prompt_path: Path = Field(default=Path(__file__).resolve().parent.parent.parent / "prompt.txt")
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:5173", "http://127.0.0.1:5173"])
     enable_splitter: bool = Field(default=True)
